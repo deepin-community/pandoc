@@ -1,0 +1,20 @@
+Description: Allow tasty 1.1
+ All tests pass with tasty 1.1.0.1 here.
+Origin: upstream, https://github.com/jgm/pandoc/commit/cf2d695
+Author: Felix Yan <felixonmars@archlinux.org>
+Forwarded: yes
+Bug: https://github.com/jgm/pandoc/issues/4685
+Last-Update: 2018-10-23
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/pandoc.cabal
++++ b/pandoc.cabal
+@@ -620,7 +620,7 @@
+                   process >= 1.2.3 && < 1.7,
+                   temporary >= 1.1 && < 1.4,
+                   Diff >= 0.2 && < 0.4,
+-                  tasty >= 0.11 && < 1.1,
++                  tasty >= 0.11 && < 1.2,
+                   tasty-hunit >= 0.9 && < 0.11,
+                   tasty-quickcheck >= 0.8 && < 0.11,
+                   tasty-golden >= 2.3 && < 2.4,

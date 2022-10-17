@@ -1,0 +1,10 @@
+# Notes about Debian packaging of Pandoc
+
+## Standalone output not always fully standalone
+
+Some output formats depend on external material,
+e.g. Javascript code for rendering mathematical equations.
+
+Pandoc commonly links to such external material hosted on a public CDN.
+Due to concerns for potential breach of privacy,
+Debian-packaged Pandoc instead links to locally packaged material.

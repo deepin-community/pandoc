@@ -1,0 +1,6 @@
+pandoc (1.12.2.1-1) unstable; urgency=low
+
+  * Major version 1.12 introduced a range of behavior changes, e.g for
+    bibliography handling.  See /usr/share/doc/pandoc/changelog.gz.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 28 Dec 2013 23:16:36 +0100

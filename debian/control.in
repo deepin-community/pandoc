@@ -1,0 +1,269 @@
+Source: pandoc
+Section: text
+Priority: optional
+Maintainer: Debian Haskell Group <debian-haskell@lists.debian.org>
+Uploaders: Jonas Smedegaard <dr@jones.dk>
+ , Kiwamu Okabe <kiwamu@debian.or.jp>
+ , Clint Adams <clint@debian.org>
+Build-Depends: @cdbs@
+Build-Depends-Indep: ghc-doc,
+ libghc-aeson-doc,
+ libghc-aeson-pretty-doc,
+ libghc-base64-bytestring-doc,
+ libghc-blaze-html-doc,
+ libghc-blaze-markup-doc,
+ libghc-case-insensitive-doc,
+ libghc-cmark-gfm-doc,
+ libghc-data-default-doc,
+ libghc-doctemplates-doc,
+ libghc-exceptions-doc,
+ libghc-glob-doc,
+ libghc-haddock-library-doc,
+ libghc-hslua-doc,
+ libghc-hslua-module-text-doc,
+ libghc-http-doc,
+ libghc-http-client-doc,
+ libghc-http-client-tls-doc,
+ libghc-http-types-doc,
+ libghc-juicypixels-doc,
+ libghc-mtl-doc,
+ libghc-network-doc,
+ libghc-network-uri-doc,
+ libghc-pandoc-types-doc,
+ libghc-parsec3-doc,
+ libghc-random-doc,
+ libghc-safe-doc,
+ libghc-scientific-doc,
+ libghc-sha-doc,
+ libghc-skylighting-doc,
+ libghc-split-doc,
+ libghc-syb-doc,
+ libghc-tagsoup-doc,
+ libghc-temporary-doc,
+ libghc-texmath-doc,
+ libghc-text-doc,
+ libghc-unordered-containers-doc,
+ libghc-vector-doc,
+ libghc-xml-doc,
+ libghc-yaml-doc,
+ libghc-zip-archive-doc,
+ libghc-zlib-doc,
+Standards-Version: 4.2.1
+Homepage: https://pandoc.org/
+Vcs-Git: https://salsa.debian.org/haskell-team/pandoc.git
+Vcs-Browser: https://salsa.debian.org/haskell-team/pandoc
+Rules-Requires-Root: no
+
+Package: pandoc
+Architecture: any
+Depends: ${cdbs:Depends}
+ , ${misc:Depends}
+ , ${shlibs:Depends}
+ , pandoc-data (>= ${source:Version})
+ , pandoc-data (<< ${source:Version}.~)
+Recommends: ${cdbs:Recommends}
+Suggests: ${cdbs:Suggests}
+Multi-Arch: foreign
+Description: general markup converter
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ It can read several dialects of Markdown and (subsets of) HTML,
+ reStructuredText, LaTeX, DocBook,
+ JATS, MediaWiki markup, TWiki markup, TikiWiki markup, Creole 1.0,
+ Haddock markup, OPML, Emacs Org-mode, Emacs Muse,
+ txt2tags, Vimwiki, Word Docx, ODT, EPUB, FictionBook2, and Textile,
+ and it can write Markdown, reStructuredText, XHTML, HTML 5,
+ LaTeX (including rendering as plain PDF or beamer slide shows),
+ ConTeXt, DocBook, JATS, OPML, TEI, OpenDocument, ODT, Word docx, RTF,
+ MediaWiki, DokuWiki, ZimWiki, Textile, groff man, groff ms, GNU Texinfo,
+ plain text, Emacs Org-Mode, AsciiDoc, Haddock markup,
+ EPUB (v2 and v3), FictionBook2, InDesign ICML,
+ Muse, LaTeX beamer slides, PowerPoint,
+ and several kinds of HTML/javaScript slide shows
+ (S5, Slidy, Slideous, DZSlides, reveal.js).
+ .
+ In contrast to most existing tools for converting Markdown to HTML,
+ pandoc has a modular design:
+ it consists of a set of readers, which parse text in a given format
+ and produce a native representation of the document,
+ and a set of writers,
+ which convert this native representation into a target format.
+ Thus,
+ adding an input or output format requires only adding a reader or writer.
+ .
+ This package contains the pandoc tool.
+ .
+ Some uses of Pandoc require additional packages:
+  * SVG content in PDF output requires librsvg2-bin.
+  * YAML metadata in TeX-related output requires texlive-latex-extra.
+  * *.hs filters not set executable requires ghc.
+  * *.js filters not set executable requires nodejs.
+  * *.php filters not set executable requires php.
+  * *.pl filters not set executable requires perl.
+  * *.py filters not set executable requires python.
+  * *.rb filters not set executable requires ruby.
+  * *.r filters not set executable requires r-base-core.
+  * LaTeX output, and PDF output via PDFLaTeX, require
+    texlive-latex-recommended.
+  * XeLaTeX output, and PDF output via XeLaTeX, require texlive-xetex.
+  * LuaTeX output, and PDF output via LuaTeX, require texlive-luatex.
+  * ConTeXt output, and PDF output via ConTeXt, require context.
+  * PDF output via wkhtmltopdf requires wkhtmltopdf.
+  * Groff man and groff ms output, and PDF output via groff ms, require
+    groff.
+  * MathJax-rendered equations require libjs-mathjax.
+  * KaTeX-rendered equations require node-katex.
+
+Package: pandoc-data
+Architecture: all
+Depends: ${cdbs:Depends}
+ , ${misc:Depends}
+Recommends: ${cdbs:Recommends}
+Suggests: ${cdbs:Suggests}
+Multi-Arch: foreign
+Description: general markup converter - data files
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ It can read several dialects of Markdown and (subsets of) HTML,
+ reStructuredText, LaTeX, DocBook,
+ JATS, MediaWiki markup, TWiki markup, TikiWiki markup, Creole 1.0,
+ Haddock markup, OPML, Emacs Org-mode, Emacs Muse,
+ txt2tags, Vimwiki, Word Docx, ODT, EPUB, FictionBook2, and Textile,
+ and it can write Markdown, reStructuredText, XHTML, HTML 5,
+ LaTeX (including rendering as plain PDF or beamer slide shows),
+ ConTeXt, DocBook, JATS, OPML, TEI, OpenDocument, ODT, Word docx, RTF,
+ MediaWiki, DokuWiki, ZimWiki, Textile, groff man, groff ms, GNU Texinfo,
+ plain text, Emacs Org-Mode, AsciiDoc, Haddock markup,
+ EPUB (v2 and v3), FictionBook2, InDesign ICML,
+ Muse, LaTeX beamer slides, PowerPoint,
+ and several kinds of HTML/javaScript slide shows
+ (S5, Slidy, Slideous, DZSlides, reveal.js).
+ .
+ In contrast to most existing tools for converting Markdown to HTML,
+ pandoc has a modular design:
+ it consists of a set of readers, which parse text in a given format
+ and produce a native representation of the document,
+ and a set of writers,
+ which convert this native representation into a target format.
+ Thus,
+ adding an input or output format requires only adding a reader or writer.
+ .
+ This package contains the data files for pandoc.
+
+Package: libghc-pandoc-dev
+Section: haskell
+Architecture: any
+Depends: ${cdbs:Depends}
+ , ${haskell:Depends}
+ , ${haskell:Extra-Depends}
+ , ${misc:Depends}
+ , ${shlibs:Depends}
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Provides: ${haskell:Provides}
+Description: general markup converter - libraries
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ It can read several dialects of Markdown and (subsets of) HTML,
+ reStructuredText, LaTeX, DocBook,
+ JATS, MediaWiki markup, TWiki markup, TikiWiki markup, Creole 1.0,
+ Haddock markup, OPML, Emacs Org-mode, Emacs Muse,
+ txt2tags, Vimwiki, Word Docx, ODT, EPUB, FictionBook2, and Textile,
+ and it can write Markdown, reStructuredText, XHTML, HTML 5,
+ LaTeX (including rendering as plain PDF or beamer slide shows),
+ ConTeXt, DocBook, JATS, OPML, TEI, OpenDocument, ODT, Word docx, RTF,
+ MediaWiki, DokuWiki, ZimWiki, Textile, groff man, groff ms, GNU Texinfo,
+ plain text, Emacs Org-Mode, AsciiDoc, Haddock markup,
+ EPUB (v2 and v3), FictionBook2, InDesign ICML,
+ Muse, LaTeX beamer slides, PowerPoint,
+ and several kinds of HTML/javaScript slide shows
+ (S5, Slidy, Slideous, DZSlides, reveal.js).
+ .
+ In contrast to most existing tools for converting Markdown to HTML,
+ pandoc has a modular design:
+ it consists of a set of readers, which parse text in a given format
+ and produce a native representation of the document,
+ and a set of writers,
+ which convert this native representation into a target format.
+ Thus,
+ adding an input or output format requires only adding a reader or writer.
+ .
+ This package contains the libraries compiled for GHC.
+
+Package: libghc-pandoc-doc
+Section: doc
+Architecture: all
+Depends: ${haskell:Depends}
+ , ${haskell:Extra-Depends}
+ , ${misc:Depends}
+Recommends: ${haskell:Recommends}
+Description: general markup converter - library documentation
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ It can read several dialects of Markdown and (subsets of) HTML,
+ reStructuredText, LaTeX, DocBook,
+ JATS, MediaWiki markup, TWiki markup, TikiWiki markup, Creole 1.0,
+ Haddock markup, OPML, Emacs Org-mode, Emacs Muse,
+ txt2tags, Vimwiki, Word Docx, ODT, EPUB, FictionBook2, and Textile,
+ and it can write Markdown, reStructuredText, XHTML, HTML 5,
+ LaTeX (including rendering as plain PDF or beamer slide shows),
+ ConTeXt, DocBook, JATS, OPML, TEI, OpenDocument, ODT, Word docx, RTF,
+ MediaWiki, DokuWiki, ZimWiki, Textile, groff man, groff ms, GNU Texinfo,
+ plain text, Emacs Org-Mode, AsciiDoc, Haddock markup,
+ EPUB (v2 and v3), FictionBook2, InDesign ICML,
+ Muse, LaTeX beamer slides, PowerPoint,
+ and several kinds of HTML/javaScript slide shows
+ (S5, Slidy, Slideous, DZSlides, reveal.js).
+ .
+ In contrast to most existing tools for converting Markdown to HTML,
+ pandoc has a modular design:
+ it consists of a set of readers, which parse text in a given format
+ and produce a native representation of the document,
+ and a set of writers,
+ which convert this native representation into a target format.
+ Thus,
+ adding an input or output format requires only adding a reader or writer.
+ .
+ This package contains the library documentation for Pandoc.
+
+Package: libghc-pandoc-prof
+Section: haskell
+Architecture: any
+Depends: ${haskell:Depends}
+ , ${haskell:Extra-Depends}
+ , ${misc:Depends}
+Suggests: ${cdbs:Suggests}
+Provides: ${haskell:Provides}
+Description: general markup converter - profiling libraries
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ It can read several dialects of Markdown and (subsets of) HTML,
+ reStructuredText, LaTeX, DocBook,
+ JATS, MediaWiki markup, TWiki markup, TikiWiki markup, Creole 1.0,
+ Haddock markup, OPML, Emacs Org-mode, Emacs Muse,
+ txt2tags, Vimwiki, Word Docx, ODT, EPUB, FictionBook2, and Textile,
+ and it can write Markdown, reStructuredText, XHTML, HTML 5,
+ LaTeX (including rendering as plain PDF or beamer slide shows),
+ ConTeXt, DocBook, JATS, OPML, TEI, OpenDocument, ODT, Word docx, RTF,
+ MediaWiki, DokuWiki, ZimWiki, Textile, groff man, groff ms, GNU Texinfo,
+ plain text, Emacs Org-Mode, AsciiDoc, Haddock markup,
+ EPUB (v2 and v3), FictionBook2, InDesign ICML,
+ Muse, LaTeX beamer slides, PowerPoint,
+ and several kinds of HTML/javaScript slide shows
+ (S5, Slidy, Slideous, DZSlides, reveal.js).
+ .
+ In contrast to most existing tools for converting Markdown to HTML,
+ pandoc has a modular design:
+ it consists of a set of readers, which parse text in a given format
+ and produce a native representation of the document,
+ and a set of writers,
+ which convert this native representation into a target format.
+ Thus,
+ adding an input or output format requires only adding a reader or writer.
+ .
+ This package contains the profiling libraries for Pandoc.
