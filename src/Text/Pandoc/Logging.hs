@@ -1,27 +1,9 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
 {-# LANGUAGE OverloadedStrings  #-}
-{-
-Copyright (C) 2016-17 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
 {- |
    Module      : Text.Pandoc.Logging
-   Copyright   : Copyright (C) 2006-2018 John MacFarlane
+   Copyright   : Copyright (C) 2006-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -40,19 +22,19 @@ module Text.Pandoc.Logging (
   , messageVerbosity
   ) where
 
-import Prelude
 import Control.Monad (mzero)
 import Data.Aeson
 import Data.Aeson.Encode.Pretty (Config (..), defConfig, encodePretty',
                                  keyOrder)
 import qualified Data.ByteString.Lazy as BL
 import Data.Data (Data, toConstr)
-import Data.List (isSuffixOf)
 import qualified Data.Text as Text
+import Data.Text (Text)
 import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import Text.Pandoc.Definition
 import Text.Parsec.Pos
+import Text.Pandoc.Shared (tshow)
 
 -- | Verbosity level.
 data Verbosity = ERROR | WARNING | INFO
@@ -70,39 +52,51 @@ instance FromJSON Verbosity where
   parseJSON _      =  mzero
 
 data LogMessage =
-    SkippedContent String SourcePos
-  | CouldNotParseYamlMetadata String SourcePos
-  | DuplicateLinkReference String SourcePos
-  | DuplicateNoteReference String SourcePos
-  | NoteDefinedButNotUsed String SourcePos
-  | DuplicateIdentifier String SourcePos
-  | ReferenceNotFound String SourcePos
-  | CircularReference String SourcePos
-  | UndefinedToggle String SourcePos
-  | ParsingUnescaped String SourcePos
-  | CouldNotLoadIncludeFile String SourcePos
-  | MacroAlreadyDefined String SourcePos
+    SkippedContent Text SourcePos
+  | IgnoredElement Text
+  | DuplicateLinkReference Text SourcePos
+  | DuplicateNoteReference Text SourcePos
+  | NoteDefinedButNotUsed Text SourcePos
+  | DuplicateIdentifier Text SourcePos
+  | ReferenceNotFound Text SourcePos
+  | CircularReference Text SourcePos
+  | UndefinedToggle Text SourcePos
+  | ParsingUnescaped Text SourcePos
+  | CouldNotLoadIncludeFile Text SourcePos
+  | MacroAlreadyDefined Text SourcePos
   | InlineNotRendered Inline
   | BlockNotRendered Block
-  | DocxParserWarning String
-  | IgnoredIOError String
-  | CouldNotFetchResource String String
-  | CouldNotDetermineImageSize String String
-  | CouldNotConvertImage String String
-  | CouldNotDetermineMimeType String
-  | CouldNotConvertTeXMath String String
-  | CouldNotParseCSS String
-  | Fetching String
-  | Extracting String
-  | NoTitleElement String
+  | DocxParserWarning Text
+  | PowerpointTemplateWarning Text
+  | IgnoredIOError Text
+  | CouldNotFetchResource Text Text
+  | CouldNotDetermineImageSize Text Text
+  | CouldNotConvertImage Text Text
+  | CouldNotDetermineMimeType Text
+  | CouldNotConvertTeXMath Text Text
+  | CouldNotParseCSS Text
+  | Fetching Text
+  | Extracting Text
+  | LoadedResource FilePath FilePath
+  | NoTitleElement Text
   | NoLangSpecified
-  | InvalidLang String
-  | CouldNotHighlight String
-  | MissingCharacter String
-  | Deprecated String String
-  | NoTranslation String
-  | CouldNotLoadTranslations String String
-  | UnexpectedXmlElement String String
+  | InvalidLang Text
+  | CouldNotHighlight Text
+  | MissingCharacter Text
+  | Deprecated Text Text
+  | NoTranslation Text
+  | CouldNotLoadTranslations Text Text
+  | UnusualConversion Text
+  | UnexpectedXmlElement Text Text
+  | UnknownOrgExportOption Text
+  | CouldNotDeduceFormat [Text] Text
+  | RunningFilter FilePath
+  | FilterCompleted FilePath Integer
+  | CiteprocWarning Text
+  | ATXHeadingInLHS Int Text
+  | EnvironmentVariableUndefined Text
+  | DuplicateAttribute Text Text
+  | NotUTF8Encoded FilePath
   deriving (Show, Eq, Data, Ord, Typeable, Generic)
 
 instance ToJSON LogMessage where
@@ -111,63 +105,60 @@ instance ToJSON LogMessage where
     "type" .= toJSON (show $ toConstr x) :
     case x of
       SkippedContent s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= sourceLine pos,
             "column" .= sourceColumn pos]
-      CouldNotParseYamlMetadata s pos ->
-           ["message" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
-            "line" .= toJSON (sourceLine pos),
-            "column" .= toJSON (sourceColumn pos)]
+      IgnoredElement s ->
+           ["contents" .= s]
       DuplicateLinkReference s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       NoteDefinedButNotUsed s pos ->
-           ["key" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["key" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       DuplicateNoteReference s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       DuplicateIdentifier s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       ReferenceNotFound s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       CircularReference s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       UndefinedToggle s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       ParsingUnescaped s pos ->
-           ["contents" .= Text.pack s,
-            "source" .= Text.pack (sourceName pos),
+           ["contents" .= s,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       CouldNotLoadIncludeFile fp pos ->
-           ["path" .= Text.pack fp,
-            "source" .= Text.pack (sourceName pos),
+           ["path" .= fp,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       MacroAlreadyDefined name pos ->
-           ["name" .= Text.pack name,
-            "source" .= Text.pack (sourceName pos),
+           ["name" .= name,
+            "source" .= sourceName pos,
             "line" .= toJSON (sourceLine pos),
             "column" .= toJSON (sourceColumn pos)]
       InlineNotRendered il ->
@@ -175,57 +166,87 @@ instance ToJSON LogMessage where
       BlockNotRendered bl ->
            ["contents" .= toJSON bl]
       DocxParserWarning s ->
-           ["contents" .= Text.pack s]
+           ["contents" .= s]
+      PowerpointTemplateWarning s ->
+           ["contents" .= s]
       IgnoredIOError s ->
-           ["contents" .= Text.pack s]
+           ["contents" .= s]
       CouldNotFetchResource fp s ->
-           ["path" .= Text.pack fp,
-            "message" .= Text.pack s]
+           ["path" .= fp,
+            "message" .= s]
       CouldNotDetermineImageSize fp s ->
-           ["path" .= Text.pack fp,
-            "message" .= Text.pack s]
+           ["path" .= fp,
+            "message" .= s]
       CouldNotConvertImage fp s ->
-           ["path" .= Text.pack fp,
-            "message" .= Text.pack s]
+           ["path" .= fp,
+            "message" .= s]
       CouldNotDetermineMimeType fp ->
-           ["path" .= Text.pack fp]
+           ["path" .= fp]
       CouldNotConvertTeXMath s msg ->
-           ["contents" .= Text.pack s,
-            "message" .= Text.pack msg]
+           ["contents" .= s,
+            "message" .= msg]
       CouldNotParseCSS msg ->
-           ["message" .= Text.pack msg]
+           ["message" .= msg]
       Fetching fp ->
-           ["path" .= Text.pack fp]
+           ["path" .= fp]
       Extracting fp ->
-           ["path" .= Text.pack fp]
+           ["path" .= fp]
+      LoadedResource orig found ->
+           ["for"  .= orig
+           ,"from" .= found]
       NoTitleElement fallback ->
-           ["fallback" .= Text.pack fallback]
+           ["fallback" .= fallback]
       NoLangSpecified -> []
       InvalidLang s ->
-           ["lang" .= Text.pack s]
+           ["lang" .= s]
       CouldNotHighlight msg ->
-           ["message" .= Text.pack msg]
+           ["message" .= msg]
       MissingCharacter msg ->
-           ["message" .= Text.pack msg]
+           ["message" .= msg]
       Deprecated thing msg ->
-           ["thing" .= Text.pack thing,
-            "message" .= Text.pack msg]
+           ["thing" .= thing,
+            "message" .= msg]
       NoTranslation term ->
-           ["term" .= Text.pack term]
+           ["term" .= term]
       CouldNotLoadTranslations lang msg ->
-           ["lang" .= Text.pack lang,
-            "message" .= Text.pack msg]
+           ["lang" .= lang,
+            "message" .= msg]
+      UnusualConversion msg ->
+           ["message" .= msg]
       UnexpectedXmlElement element parent ->
-           ["element" .= Text.pack element,
-            "parent" .= Text.pack parent]
+           ["element" .= element,
+            "parent" .= parent]
+      UnknownOrgExportOption option ->
+           ["option" .= option]
+      CouldNotDeduceFormat exts format ->
+           ["extensions" .= exts
+           ,"format" .= format]
+      RunningFilter fp ->
+           ["path" .= Text.pack fp ]
+      FilterCompleted fp ms ->
+           ["path" .= Text.pack fp
+           ,"milliseconds" .= Text.pack (show ms) ]
+      CiteprocWarning msg ->
+           ["message" .= msg]
+      ATXHeadingInLHS lvl contents ->
+           ["level" .= lvl
+           ,"contents" .= contents]
+      EnvironmentVariableUndefined var ->
+           ["variable" .= var ]
+      DuplicateAttribute attr val ->
+           ["attribute" .= attr
+           ,"value" .= val]
+      NotUTF8Encoded src ->
+           ["source" .= src]
 
-
-showPos :: SourcePos -> String
-showPos pos = sn ++ "line " ++
+showPos :: SourcePos -> Text
+showPos pos = Text.pack $ sn ++ "line " ++
      show (sourceLine pos) ++ " column " ++ show (sourceColumn pos)
-  where sn = if sourceName pos == "source" || sourceName pos == ""
-                then ""
-                else sourceName pos ++ " "
+  where
+    sn' = sourceName pos
+    sn = if sn' == "source" || sn' == "" || sn' == "-"
+            then ""
+            else sn' ++ " "
 
 encodeLogMessages :: [LogMessage] -> BL.ByteString
 encodeLogMessages ms =
@@ -233,125 +254,167 @@ encodeLogMessages ms =
       keyOrder [ "type", "verbosity", "contents", "message", "path",
                  "source", "line", "column" ] } ms
 
-showLogMessage :: LogMessage -> String
+showLogMessage :: LogMessage -> Text
 showLogMessage msg =
   case msg of
        SkippedContent s pos ->
-         "Skipped '" ++ s ++ "' at " ++ showPos pos
-       CouldNotParseYamlMetadata s pos ->
-         "Could not parse YAML metadata at " ++ showPos pos ++
-           if null s then "" else ": " ++ s
+         "Skipped '" <> s <> "' at " <> showPos pos
+       IgnoredElement s ->
+         "Ignored element " <> s
        DuplicateLinkReference s pos ->
-         "Duplicate link reference '" ++ s ++ "' at " ++ showPos pos
+         "Duplicate link reference '" <> s <> "' at " <> showPos pos
        DuplicateNoteReference s pos ->
-         "Duplicate note reference '" ++ s ++ "' at " ++ showPos pos
+         "Duplicate note reference '" <> s <> "' at " <> showPos pos
        NoteDefinedButNotUsed s pos ->
-         "Note with key '" ++ s ++ "' defined at " ++ showPos pos ++
+         "Note with key '" <> s <> "' defined at " <> showPos pos <>
            " but not used."
        DuplicateIdentifier s pos ->
-         "Duplicate identifier '" ++ s ++ "' at " ++ showPos pos
+         "Duplicate identifier '" <> s <> "' at " <> showPos pos
        ReferenceNotFound s pos ->
-         "Reference not found for '" ++ s ++ "' at " ++ showPos pos
+         "Reference not found for '" <> s <> "' at " <> showPos pos
        CircularReference s pos ->
-         "Circular reference '" ++ s ++ "' at " ++ showPos pos
+         "Circular reference '" <> s <> "' at " <> showPos pos
        UndefinedToggle s pos ->
-         "Undefined toggle '" ++ s ++ "' at " ++ showPos pos
+         "Undefined toggle '" <> s <> "' at " <> showPos pos
        ParsingUnescaped s pos ->
-         "Parsing unescaped '" ++ s ++ "' at " ++ showPos pos
+         "Parsing unescaped '" <> s <> "' at " <> showPos pos
        CouldNotLoadIncludeFile fp pos ->
-         "Could not load include file '" ++ fp ++ "' at " ++ showPos pos
+         "Could not load include file " <> fp <> " at " <> showPos pos
        MacroAlreadyDefined name pos ->
-         "Macro '" ++ name ++ "' already defined, ignoring at " ++ showPos pos
+         "Macro '" <> name <> "' already defined, ignoring at " <> showPos pos
        InlineNotRendered il ->
-         "Not rendering " ++ show il
+         "Not rendering " <> Text.pack (show il)
        BlockNotRendered bl ->
-         "Not rendering " ++ show bl
+         "Not rendering " <> Text.pack (show bl)
        DocxParserWarning s ->
-         "Docx parser warning: " ++ s
+         "Docx parser warning: " <> s
+       PowerpointTemplateWarning s ->
+         "Powerpoint template warning: " <> s
        IgnoredIOError s ->
-         "IO Error (ignored): " ++ s
+         "IO Error (ignored): " <> s
        CouldNotFetchResource fp s ->
-         "Could not fetch resource '" ++ fp ++ "'" ++
-           if null s then "" else ": " ++ s
+         "Could not fetch resource " <> fp <>
+           if Text.null s then "" else ": " <> s
        CouldNotDetermineImageSize fp s ->
-         "Could not determine image size for '" ++ fp ++ "'" ++
-           if null s then "" else ": " ++ s
+         "Could not determine image size for " <> fp <>
+           if Text.null s then "" else ": " <> s
        CouldNotConvertImage fp s ->
-         "Could not convert image '" ++ fp ++ "'" ++
-           if null s then "" else ": " ++ s
+         "Could not convert image " <> fp <>
+           if Text.null s then "" else ": " <> s
        CouldNotDetermineMimeType fp ->
-         "Could not determine mime type for '" ++ fp ++ "'"
+         "Could not determine mime type for " <> fp
        CouldNotConvertTeXMath s m ->
-         "Could not convert TeX math '" ++ s ++ "', rendering as TeX" ++
-           if null m then "" else ':' : '\n' : m
+         "Could not convert TeX math " <> s <> ", rendering as TeX" <>
+           if Text.null m then "" else ":\n" <> m
        CouldNotParseCSS m ->
-         "Could not parse CSS" ++ if null m then "" else ':' : '\n' : m
+         "Could not parse CSS" <> if Text.null m then "" else ":\n" <> m
        Fetching fp ->
-         "Fetching " ++ fp ++ "..."
+         "Fetching " <> fp <> "..."
        Extracting fp ->
-         "Extracting " ++ fp ++ "..."
+         "Extracting " <> fp <> "..."
+       LoadedResource orig found ->
+         "Loaded " <> Text.pack orig <> " from " <> Text.pack found
        NoTitleElement fallback ->
-         "This document format requires a nonempty <title> element.\n" ++
-         "Please specify either 'title' or 'pagetitle' in the metadata.\n" ++
-         "Falling back to '" ++ fallback ++ "'"
+         "This document format requires a nonempty <title> element.\n" <>
+         "Defaulting to '" <> fallback <> "' as the title.\n" <>
+         "To specify a title, use 'title' in metadata or " <>
+         "--metadata title=\"...\"."
        NoLangSpecified ->
-         "No value for 'lang' was specified in the metadata.\n" ++
+         "No value for 'lang' was specified in the metadata.\n" <>
          "It is recommended that lang be specified for this format."
        InvalidLang s ->
-         "Invalid 'lang' value '" ++ s ++ "'.\n" ++
+         "Invalid 'lang' value '" <> s <> "'.\n" <>
          "Use an IETF language tag like 'en-US'."
        CouldNotHighlight m ->
-         "Could not highlight code block:\n" ++ m
+         "Could not highlight code block:\n" <> m
        MissingCharacter m ->
-         "Missing character: " ++ m
+         "Missing character: " <> m
        Deprecated t m ->
-         "Deprecated: " ++ t ++
-         if null m
+         "Deprecated: " <> t <>
+         if Text.null m
             then ""
-            else ". " ++ m
+            else ". " <> m
        NoTranslation t ->
-         "The term " ++ t ++ " has no translation defined."
+         "The term " <> t <> " has no translation defined."
        CouldNotLoadTranslations lang m ->
-         "Could not load translations for " ++ lang ++
-           if null m then "" else '\n' : m
+         "Could not load translations for " <> lang <>
+           if Text.null m then "" else "\n" <> m
+       UnusualConversion m ->
+         "Unusual conversion: " <> m
        UnexpectedXmlElement element parent ->
-         "Unexpected XML element " ++ element ++ " in " ++ parent
+         "Unexpected XML element " <> element <> " in " <> parent
+       UnknownOrgExportOption option ->
+         "Ignoring unknown Org export option: " <> option
+       CouldNotDeduceFormat exts format ->
+         "Could not deduce format from file extension " <>
+         Text.intercalate " or " exts <> "\n" <>
+         "Defaulting to " <> format
+       RunningFilter fp -> "Running filter " <> Text.pack fp
+       FilterCompleted fp ms -> "Completed filter " <> Text.pack fp <>
+          " in " <> Text.pack (show ms) <> " ms"
+       CiteprocWarning ms -> "Citeproc: " <> ms
+       ATXHeadingInLHS lvl contents ->
+         "Rendering heading '" <> contents <> "' as a paragraph.\n" <>
+         "ATX headings cannot be used in literate Haskell, because " <>
+         "'#' is not\nallowed in column 1." <>
+         if lvl < 3
+            then " Consider using --markdown-headings=setext."
+            else ""
+       EnvironmentVariableUndefined var ->
+         "Undefined environment variable " <> var <> " in defaults file."
+       DuplicateAttribute attr val ->
+         "Ignoring duplicate attribute " <> attr <> "=" <> tshow val <> "."
+       NotUTF8Encoded src ->
+         Text.pack src <>
+           " is not UTF-8 encoded: falling back to latin1."
 
-messageVerbosity:: LogMessage -> Verbosity
+messageVerbosity :: LogMessage -> Verbosity
 messageVerbosity msg =
   case msg of
-       SkippedContent{}             -> INFO
-       CouldNotParseYamlMetadata{}  -> WARNING
-       DuplicateLinkReference{}     -> WARNING
-       DuplicateNoteReference{}     -> WARNING
-       NoteDefinedButNotUsed{}      -> WARNING
-       DuplicateIdentifier{}        -> WARNING
-       ReferenceNotFound{}          -> WARNING
-       CircularReference{}          -> WARNING
-       UndefinedToggle{}            -> WARNING
+       SkippedContent{}              -> INFO
+       IgnoredElement{}              -> INFO
+       DuplicateLinkReference{}      -> WARNING
+       DuplicateNoteReference{}      -> WARNING
+       NoteDefinedButNotUsed{}       -> WARNING
+       DuplicateIdentifier{}         -> WARNING
+       ReferenceNotFound{}           -> WARNING
+       CircularReference{}           -> WARNING
+       UndefinedToggle{}             -> WARNING
        CouldNotLoadIncludeFile f _
-        | ".sty" `isSuffixOf` f     -> INFO
-        | otherwise                 -> WARNING
-       MacroAlreadyDefined{}        -> WARNING
-       ParsingUnescaped{}           -> INFO
-       InlineNotRendered{}          -> INFO
-       BlockNotRendered{}           -> INFO
-       DocxParserWarning{}          -> INFO
-       IgnoredIOError{}             -> WARNING
-       CouldNotFetchResource{}      -> WARNING
-       CouldNotDetermineImageSize{} -> WARNING
-       CouldNotConvertImage{}       -> WARNING
-       CouldNotDetermineMimeType{}  -> WARNING
-       CouldNotConvertTeXMath{}     -> WARNING
-       CouldNotParseCSS{}           -> WARNING
-       Fetching{}                   -> INFO
-       Extracting{}                 -> INFO
-       NoTitleElement{}             -> WARNING
-       NoLangSpecified              -> INFO
-       InvalidLang{}                -> WARNING
-       CouldNotHighlight{}          -> WARNING
-       MissingCharacter{}           -> WARNING
-       Deprecated{}                 -> WARNING
-       NoTranslation{}              -> WARNING
-       CouldNotLoadTranslations{}   -> WARNING
-       UnexpectedXmlElement {}      -> WARNING
+        | ".sty" `Text.isSuffixOf` f -> INFO
+        | otherwise                  -> WARNING
+       MacroAlreadyDefined{}         -> WARNING
+       ParsingUnescaped{}            -> INFO
+       InlineNotRendered{}           -> INFO
+       BlockNotRendered{}            -> INFO
+       DocxParserWarning{}           -> INFO
+       PowerpointTemplateWarning{}   -> WARNING
+       IgnoredIOError{}              -> WARNING
+       CouldNotFetchResource{}       -> WARNING
+       CouldNotDetermineImageSize{}  -> WARNING
+       CouldNotConvertImage{}        -> WARNING
+       CouldNotDetermineMimeType{}   -> WARNING
+       CouldNotConvertTeXMath{}      -> WARNING
+       CouldNotParseCSS{}            -> WARNING
+       Fetching{}                    -> INFO
+       Extracting{}                  -> INFO
+       LoadedResource{}              -> INFO
+       NoTitleElement{}              -> WARNING
+       NoLangSpecified               -> INFO
+       InvalidLang{}                 -> WARNING
+       CouldNotHighlight{}           -> WARNING
+       MissingCharacter{}            -> WARNING
+       Deprecated{}                  -> WARNING
+       NoTranslation{}               -> WARNING
+       CouldNotLoadTranslations{}    -> WARNING
+       UnusualConversion {}          -> WARNING
+       UnexpectedXmlElement {}       -> WARNING
+       UnknownOrgExportOption {}     -> WARNING
+       CouldNotDeduceFormat{}        -> WARNING
+       RunningFilter{}               -> INFO
+       FilterCompleted{}             -> INFO
+       CiteprocWarning{}             -> WARNING
+       ATXHeadingInLHS{}             -> WARNING
+       EnvironmentVariableUndefined{}-> WARNING
+       DuplicateAttribute{}          -> WARNING
+       NotUTF8Encoded{}              -> WARNING

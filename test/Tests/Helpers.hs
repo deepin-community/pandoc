@@ -1,12 +1,22 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE TypeSynonymInstances #-}
--- Utility functions for the test suite.
+{- |
+   Module      : Tests.Helpers
+   Copyright   : © 2006-2022 John MacFarlane
+   License     : GNU GPL, version 2 or above
 
+   Maintainer  : John MacFarlane <jgm@berkeley@edu>
+   Stability   : alpha
+   Portability : portable
+
+Utility functions for the test suite.
+-}
 module Tests.Helpers ( test
                      , TestResult(..)
+                     , setupEnvironment
                      , showDiff
-                     , findPandoc
+                     , testGolden
                      , (=?>)
                      , purely
                      , ToString(..)
@@ -14,15 +24,16 @@ module Tests.Helpers ( test
                      )
                      where
 
-import Prelude
+import System.FilePath
 import Data.Algorithm.Diff
 import qualified Data.Map as M
+import qualified Text.Pandoc.UTF8 as UTF8
 import Data.Text (Text, unpack)
-import System.Directory
-import System.Environment.Executable (getExecutablePath)
+import qualified Data.Text as T
 import System.Exit
-import System.FilePath
+import qualified System.Environment as Env
 import Test.Tasty
+import Test.Tasty.Golden.Advanced (goldenTest)
 import Test.Tasty.HUnit
 import Text.Pandoc.Builder (Blocks, Inlines, doc, plain)
 import Text.Pandoc.Class
@@ -32,7 +43,7 @@ import Text.Pandoc.Shared (trimr)
 import Text.Pandoc.Writers.Native (writeNative)
 import Text.Printf
 
-test :: (ToString a, ToString b, ToString c)
+test :: (ToString a, ToString b, ToString c, HasCallStack)
      => (a -> b)  -- ^ function to test
      -> String    -- ^ name of test case
      -> (a, c)    -- ^ (input, expected value)
@@ -53,6 +64,42 @@ test fn name (input, expected) =
            diff = getDiff expected' actual'
            dashes "" = replicate 72 '-'
            dashes x  = replicate (72 - length x - 5) '-' ++ " " ++ x ++ " ---"
+
+testGolden :: TestName -> FilePath -> FilePath -> (Text -> IO Text) -> TestTree
+testGolden  name expectedPath inputPath fn =
+  goldenTest
+    name
+    (UTF8.readFile expectedPath)
+    (UTF8.readFile inputPath >>= fn)
+    compareVals
+    (UTF8.writeFile expectedPath)
+ where
+  compareVals expected actual
+    | expected == actual = return Nothing
+    | otherwise =  return $ Just $
+        "\n--- " ++ expectedPath ++ "\n+++\n" ++
+        showDiff (1,1)
+          (getDiff (lines . filter (/='\r') $ T.unpack actual)
+                   (lines . filter (/='\r') $ T.unpack expected))
+
+-- | Set up environment for pandoc command tests.
+setupEnvironment :: FilePath -> IO [(String, String)]
+setupEnvironment testExePath = do
+  mldpath   <- Env.lookupEnv "LD_LIBRARY_PATH"
+  mdyldpath <- Env.lookupEnv "DYLD_LIBRARY_PATH"
+  mpdd <- Env.lookupEnv "pandoc_datadir"
+  -- Note that Cabal sets the pandoc_datadir environment variable
+  -- to point to the source directory, since otherwise getDataFilename
+  -- will look in the data directory into which pandoc will be installed
+  -- (but has not yet been).  So when we spawn a new process with
+  -- pandoc, we need to make sure this environment variable is set.
+  return $ ("PATH",takeDirectory testExePath) :
+           ("TMP",".") :
+           ("LANG","en_US.UTF-8") :
+           ("HOME", "./") :
+           maybe [] ((:[]) . ("pandoc_datadir",)) mpdd ++
+           maybe [] ((:[]) . ("LD_LIBRARY_PATH",)) mldpath ++
+           maybe [] ((:[]) . ("DYLD_LIBRARY_PATH",)) mdyldpath
 
 data TestResult = TestPassed
                 | TestError ExitCode
@@ -77,21 +124,6 @@ showDiff (l,r) (Second ln : ds) =
 showDiff (l,r) (Both _ _ : ds) =
   showDiff (l+1,r+1) ds
 
--- | Find pandoc executable relative to test-pandoc
--- First, try in same directory (e.g. if both in ~/.cabal/bin)
--- Second, try ../pandoc (e.g. if in dist/XXX/build/test-pandoc)
-findPandoc :: IO FilePath
-findPandoc = do
-  testExePath <- getExecutablePath
-  let testExeDir = takeDirectory testExePath
-  found <- doesFileExist (testExeDir </> "pandoc")
-  return $ if found
-              then testExeDir </> "pandoc"
-              else case splitDirectories testExeDir of
-                         [] -> error "test-pandoc: empty testExeDir"
-                         xs -> joinPath (init xs) </> "pandoc" </> "pandoc"
-
-
 vividize :: Diff String -> String
 vividize (Both s _) = "  " ++ s
 vividize (First s)  = "- " ++ s
@@ -113,13 +145,13 @@ instance ToString Pandoc where
    where s = case d of
                   (Pandoc (Meta m) _)
                     | M.null m  -> Nothing
-                    | otherwise -> Just "" -- need this to get meta output
+                    | otherwise -> Just mempty -- need this to get meta output
 
 instance ToString Blocks where
   toString = unpack . purely (writeNative def) . toPandoc
 
 instance ToString Inlines where
-  toString = trimr . unpack . purely (writeNative def) . toPandoc
+  toString = unpack . trimr . purely (writeNative def) . toPandoc
 
 instance ToString String where
   toString = id

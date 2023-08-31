@@ -2,20 +2,18 @@
 author:
 - John MacFarlane
 - Anonymous
-date: 'July 17, 2006'
+date: July 17, 2006
 title: Pandoc Test Suite
 ---
 
 This is a set of tests for pandoc. Most of them are adapted from John Gruber's
 markdown test suite.
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Headers
-=======
+# Headers
 
-Level 2 with an [embedded link](/url)
--------------------------------------
+## Level 2 with an [embedded link](/url)
 
 ### Level 3 with *emphasis*
 
@@ -23,25 +21,21 @@ Level 2 with an [embedded link](/url)
 
 ##### Level 5
 
-Level 1
-=======
+# Level 1
 
-Level 2 with *emphasis*
------------------------
+## Level 2 with *emphasis*
 
 ### Level 3
 
 with no blank line
 
-Level 2
--------
+## Level 2
 
 with no blank line
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Paragraphs
-==========
+# Paragraphs
 
 Here's a regular paragraph.
 
@@ -54,10 +48,9 @@ Here's one with a bullet. \* criminey.
 There should be a hard line break\
 here.
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Block Quotes
-============
+# Block Quotes
 
 E-mail style:
 
@@ -84,10 +77,9 @@ This should not be a block quote: 2 \> 1.
 
 And a following paragraph.
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Code Blocks
-===========
+# Code Blocks
 
 Code:
 
@@ -105,13 +97,11 @@ And:
 
     These should not be escaped:  \$ \\ \> \[ \{
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Lists
-=====
+# Lists
 
-Unordered
----------
+## Unordered
 
 Asterisks tight:
 
@@ -155,8 +145,7 @@ Minuses loose:
 
 -   Minus 3
 
-Ordered
--------
+## Ordered
 
 Tight:
 
@@ -196,8 +185,7 @@ Multiple paragraphs:
 
 3.  Item 3.
 
-Nested
-------
+## Nested
 
 -   Tab
     -   Tab
@@ -224,8 +212,7 @@ Same thing but with paragraphs:
 
 3.  Third
 
-Tabs and spaces
----------------
+## Tabs and spaces
 
 -   this is a list item indented with tabs
 
@@ -235,10 +222,10 @@ Tabs and spaces
 
     -   this is an example list item indented with spaces
 
-Fancy list markers
-------------------
+## Fancy list markers
 
 (2) begins with 2
+
 (3) and now 3
 
     with a continuation
@@ -267,10 +254,9 @@ M.A. 2007
 
 B. Williams
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Definition Lists
-================
+# Definition Lists
 
 Tight using spaces:
 
@@ -363,8 +349,7 @@ orange
     1.  sublist
     2.  sublist
 
-HTML Blocks
-===========
+# HTML Blocks
 
 Simple block on one line:
 
@@ -398,17 +383,35 @@ bar
 
 Interpreted markdown in a table:
 
+```{=html}
 <table>
+```
+```{=html}
 <tr>
+```
+```{=html}
 <td>
+```
 This is *emphasized*
+```{=html}
 </td>
+```
+```{=html}
 <td>
+```
 And this is **strong**
+```{=html}
 </td>
+```
+```{=html}
 </tr>
+```
+```{=html}
 </table>
+```
+```{=html}
 <script type="text/javascript">document.write('This *should not* be interpreted as markdown');</script>
+```
 Here's a simple block:
 
 <div>
@@ -445,43 +448,68 @@ foo
 
 This should just be an HTML comment:
 
+```{=html}
 <!-- Comment -->
+```
 Multiline:
 
+```{=html}
 <!--
 Blah
 Blah
 -->
+```
+```{=html}
 <!--
     This is another comment.
 -->
+```
 Code block:
 
     <!-- Comment -->
 
 Just plain comment, with trailing spaces on the line:
 
+```{=html}
 <!-- foo -->
+```
 Code:
 
     <hr />
 
 Hr's:
 
+```{=html}
 <hr>
+```
+```{=html}
 <hr />
+```
+```{=html}
 <hr />
+```
+```{=html}
 <hr>
+```
+```{=html}
 <hr />
+```
+```{=html}
 <hr />
+```
+```{=html}
 <hr class="foo" id="bar" />
+```
+```{=html}
 <hr class="foo" id="bar" />
+```
+```{=html}
 <hr class="foo" id="bar">
+```
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Inline Markup
-=============
+# Inline Markup
 
 This is *emphasized*, and so *is this*.
 
@@ -505,13 +533,12 @@ Superscripts: a^bc^d a^*hello*^ a^hello there^.
 
 Subscripts: H~2~O, H~23~O, H~many of them~O.
 
-These should not be superscripts or subscripts, because of the unescaped
-spaces: a\^b c\^d, a\~b c\~d.
+These should not be superscripts or subscripts, because of the unescaped spaces:
+a\^b c\^d, a\~b c\~d.
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Smart quotes, ellipses, dashes
-==============================
+# Smart quotes, ellipses, dashes
 
 "Hello," said the spider. "'Shelob' is my name."
 
@@ -530,12 +557,11 @@ Dashes between numbers: 5--7, 255--66, 1987--1999.
 
 Ellipses...and...and....
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-LaTeX
-=====
+# LaTeX
 
--   \cite[22-23]{smith.1899}
+-   `\cite[22-23]{smith.1899}`{=tex}
 -   $2+2=4$
 -   $x \in y$
 -   $\alpha \wedge \omega$
@@ -555,16 +581,17 @@ These shouldn't be math:
 
 Here's a LaTeX table:
 
+```{=tex}
 \begin{tabular}{|l|l|}\hline
 Animal & Number \\ \hline
 Dog    & 2      \\
 Cat    & 1      \\ \hline
 \end{tabular}
+```
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Special Characters
-==================
+# Special Characters
 
 Here is some unicode:
 
@@ -616,13 +643,11 @@ Plus: +
 
 Minus: -
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Links
-=====
+# Links
 
-Explicit
---------
+## Explicit
 
 Just a [URL](/url/).
 
@@ -636,14 +661,13 @@ Just a [URL](/url/).
 
 [URL and title](/url/ "title with single quotes")
 
-[with\_underscore](/url/with_underscore)
+[with_underscore](/url/with_underscore)
 
 [Email link](mailto:nobody@nowhere.net)
 
 [Empty]().
 
-Reference
----------
+## Reference
 
 Foo [bar](/url/).
 
@@ -665,20 +689,17 @@ Foo [bar](/url/ "Title with "quotes" inside").
 
 Foo [biz](/url/ "Title with "quote" inside").
 
-With ampersands
----------------
+## With ampersands
 
 Here's a [link with an ampersand in the URL](http://example.com/?foo=1&bar=2).
 
-Here's a link with an amersand in the link text:
-[AT&T](http://att.com/ "AT&T").
+Here's a link with an amersand in the link text: [AT&T](http://att.com/ "AT&T").
 
 Here's an [inline link](/script?foo=1&bar=2).
 
 Here's an [inline link in pointy braces](/script?foo=1&bar=2).
 
-Autolinks
----------
+## Autolinks
 
 With an ampersand: <http://example.com/?foo=1&bar=2>
 
@@ -694,10 +715,9 @@ Auto-links should not occur here: `<http://example.com/>`
 
     or here: <http://example.com/>
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Images
-======
+# Images
 
 From "Voyage dans la Lune" by Georges Melies (1902):
 
@@ -705,14 +725,13 @@ From "Voyage dans la Lune" by Georges Melies (1902):
 
 Here is a movie ![movie](movie.jpg) icon.
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
-Footnotes
-=========
+# Footnotes
 
 Here is a footnote reference,[^1] and another.[^2] This should *not* be a
-footnote reference, because it contains a space.\[\^my note\] Here is an
-inline note.[^3]
+footnote reference, because it contains a space.\[\^my note\] Here is an inline
+note.[^3]
 
 > Notes can go in quotes.[^4]
 
@@ -720,13 +739,13 @@ inline note.[^3]
 
 This paragraph should not be part of the note, as it is not indented.
 
-[^1]: Here is the footnote. It can go anywhere after the footnote reference.
-    It need not be placed at the end of the document.
+[^1]: Here is the footnote. It can go anywhere after the footnote reference. It
+    need not be placed at the end of the document.
 
 [^2]: Here's the long note. This one contains multiple blocks.
 
-    Subsequent blocks are indented to show that they belong to the footnote
-    (as with list items).
+    Subsequent blocks are indented to show that they belong to the footnote (as
+    with list items).
 
           { <code> }
 

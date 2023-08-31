@@ -1,8 +1,17 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Inline.Note
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Test parsing of footnotes in org input.
+-}
 module Tests.Readers.Org.Inline.Note (tests) where
 
-import Prelude
 import Test.Tasty (TestTree)
 import Tests.Helpers ((=?>))
 import Tests.Readers.Org.Shared ((=:))

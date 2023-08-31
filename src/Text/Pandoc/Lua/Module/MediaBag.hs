@@ -1,110 +1,126 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright © 2017-2018 Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Lua.Module.MediaBag
-   Copyright   : Copyright © 2017-2018 Albert Krewinkel
+   Copyright   : Copyright © 2017-2022 Albert Krewinkel
    License     : GNU GPL, version 2 or above
-
    Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
-   Stability   : alpha
 
-The lua module @pandoc.mediabag@.
+The Lua module @pandoc.mediabag@.
 -}
 module Text.Pandoc.Lua.Module.MediaBag
-  ( pushModule
+  ( documentedModule
   ) where
 
-import Prelude
-import Control.Monad (zipWithM_)
-import Data.IORef (IORef, modifyIORef', readIORef)
+import Prelude hiding (lookup)
 import Data.Maybe (fromMaybe)
-import Foreign.Lua (Lua, NumResults, Optional, liftIO)
-import Text.Pandoc.Class (CommonState (..), fetchItem, putCommonState,
-                          runIOorExplode, setMediaBag)
-import Text.Pandoc.Lua.StackInstances ()
-import Text.Pandoc.Lua.Util (addFunction)
+import HsLua ( LuaE, DocumentedFunction, Module (..)
+             , (<#>), (###), (=#>), (=?>), defun, functionResult
+             , opt, parameter, stringParam, textParam)
+import Text.Pandoc.Class.CommonState (CommonState (..))
+import Text.Pandoc.Class.PandocMonad (fetchItem, getMediaBag, modifyCommonState,
+                                      setMediaBag)
+import Text.Pandoc.Error (PandocError)
+import Text.Pandoc.Lua.Marshal.List (pushPandocList)
+import Text.Pandoc.Lua.Orphans ()
+import Text.Pandoc.Lua.PandocLua (unPandocLua)
 import Text.Pandoc.MIME (MimeType)
 
 import qualified Data.ByteString.Lazy as BL
-import qualified Foreign.Lua as Lua
+import qualified HsLua as Lua
 import qualified Text.Pandoc.MediaBag as MB
 
 --
 -- MediaBag submodule
 --
-pushModule :: CommonState -> IORef MB.MediaBag -> Lua NumResults
-pushModule commonState mediaBagRef = do
-  Lua.newtable
-  addFunction "insert" (insertMediaFn mediaBagRef)
-  addFunction "lookup" (lookupMediaFn mediaBagRef)
-  addFunction "list" (mediaDirectoryFn mediaBagRef)
-  addFunction "fetch" (fetch commonState mediaBagRef)
-  return 1
+documentedModule :: Module PandocError
+documentedModule = Module
+  { moduleName = "pandoc.mediabag"
+  , moduleDescription = "mediabag access"
+  , moduleFields = []
+  , moduleFunctions =
+      [ delete
+      , empty
+      , fetch
+      , insert
+      , items
+      , list
+      , lookup
+      ]
+  , moduleOperations = []
+  }
 
-insertMediaFn :: IORef MB.MediaBag
-              -> FilePath
-              -> Optional MimeType
-              -> BL.ByteString
-              -> Lua NumResults
-insertMediaFn mbRef fp optionalMime contents = do
-  liftIO . modifyIORef' mbRef $
-    MB.insertMedia fp (Lua.fromOptional optionalMime) contents
-  return 0
+-- | Delete a single item from the media bag.
+delete :: DocumentedFunction PandocError
+delete = defun "delete"
+  ### (\fp -> unPandocLua $ modifyCommonState
+              (\st -> st { stMediaBag = MB.deleteMedia fp (stMediaBag st) }))
+  <#> stringParam "filepath" "filename of item to delete"
+  =#> []
 
-lookupMediaFn :: IORef MB.MediaBag
-              -> FilePath
-              -> Lua NumResults
-lookupMediaFn mbRef fp = do
-  res <- MB.lookupMedia fp <$> liftIO (readIORef mbRef)
-  case res of
-    Nothing -> Lua.pushnil *> return 1
-    Just (mimeType, contents) -> do
-      Lua.push mimeType
-      Lua.push contents
-      return 2
 
-mediaDirectoryFn :: IORef MB.MediaBag
-                 -> Lua NumResults
-mediaDirectoryFn mbRef = do
-  dirContents <- MB.mediaDirectory <$> liftIO (readIORef mbRef)
-  Lua.newtable
-  zipWithM_ addEntry [1..] dirContents
-  return 1
+-- | Delete all items from the media bag.
+empty :: DocumentedFunction PandocError
+empty = defun "empty"
+  ### unPandocLua (modifyCommonState (\st -> st { stMediaBag = mempty }))
+  =#> []
+
+-- | Insert a new item into the media bag.
+insert :: DocumentedFunction PandocError
+insert = defun "insert"
+  ### (\fp mmime contents -> unPandocLua $ do
+          mb <- getMediaBag
+          setMediaBag $ MB.insertMedia fp mmime contents mb
+          return (Lua.NumResults 0))
+  <#> stringParam "filepath" "item file path"
+  <#> opt (textParam "mimetype" "the item's MIME type")
+  <#> parameter Lua.peekLazyByteString "string" "contents" "binary contents"
+  =#> []
+
+-- | Returns iterator values to be used with a Lua @for@ loop.
+items :: DocumentedFunction PandocError
+items = defun "items"
+  ### (do
+          mb <-unPandocLua getMediaBag
+          let pushItem (fp, mimetype, contents) = do
+                Lua.pushString fp
+                Lua.pushText mimetype
+                Lua.pushByteString $ BL.toStrict contents
+                return (Lua.NumResults 3)
+          Lua.pushIterator pushItem (MB.mediaItems mb))
+  =?> "Iterator triple"
+
+-- | Function to lookup a value in the mediabag.
+lookup :: DocumentedFunction PandocError
+lookup = defun "lookup"
+  ### (\fp -> unPandocLua (MB.lookupMedia fp <$> getMediaBag) >>= \case
+          Nothing   -> 1 <$ Lua.pushnil
+          Just item -> 2 <$ do
+            Lua.pushText $ MB.mediaMimeType item
+            Lua.pushLazyByteString $ MB.mediaContents item)
+  <#> stringParam "filepath" "path of item to lookup"
+  =?> "MIME type and contents"
+
+-- | Function listing all mediabag items.
+list :: DocumentedFunction PandocError
+list = defun "list"
+  ### (unPandocLua (MB.mediaDirectory <$> getMediaBag))
+  =#> functionResult (pushPandocList pushEntry) "table" "list of entry triples"
  where
-  addEntry :: Int -> (FilePath, MimeType, Int) -> Lua ()
-  addEntry idx (fp, mimeType, contentLength) = do
+  pushEntry :: (FilePath, MimeType, Int) -> LuaE PandocError ()
+  pushEntry (fp, mimeType, contentLength) = do
     Lua.newtable
-    Lua.push "path" *> Lua.push fp *> Lua.rawset (-3)
-    Lua.push "type" *> Lua.push mimeType *> Lua.rawset (-3)
-    Lua.push "length" *> Lua.push contentLength *> Lua.rawset (-3)
-    Lua.rawseti (-2) idx
+    Lua.pushName "path"   *> Lua.pushString fp              *> Lua.rawset (-3)
+    Lua.pushName "type"   *> Lua.pushText mimeType          *> Lua.rawset (-3)
+    Lua.pushName "length" *> Lua.pushIntegral contentLength *> Lua.rawset (-3)
 
-fetch :: CommonState
-      -> IORef MB.MediaBag
-      -> String
-      -> Lua NumResults
-fetch commonState mbRef src = do
-  mediaBag <- liftIO $ readIORef mbRef
-  (bs, mimeType) <- liftIO . runIOorExplode $ do
-    putCommonState commonState
-    setMediaBag mediaBag
-    fetchItem src
-  Lua.push $ fromMaybe "" mimeType
-  Lua.push bs
-  return 2 -- returns 2 values: contents, mimetype
+-- | Lua function to retrieve a new item.
+fetch :: DocumentedFunction PandocError
+fetch = defun "fetch"
+  ### (\src -> do
+          (bs, mimeType) <- unPandocLua $ fetchItem src
+          Lua.pushText $ fromMaybe "" mimeType
+          Lua.pushByteString bs
+          return 2)
+  <#> textParam "src" "URI to fetch"
+  =?> "Returns two string values: the fetched contents and the mimetype."

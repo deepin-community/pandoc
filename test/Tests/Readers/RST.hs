@@ -1,9 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{- |
+   Module      : Tests.Readers.RST
+   Copyright   : © 2006-2022 John MacFarlane
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : John MacFarlane <jgm@berkeley.edu>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the RST reader.
+-}
 module Tests.Readers.RST (tests) where
 
-import Prelude
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty
@@ -106,21 +115,21 @@ tests = [ "line block with blank line" =:
             ]  =?>
               doc (codeBlockWith
                   ( ""
-                  , ["sourceCode", "python", "numberLines", "class1", "class2", "class3"]
+                  , ["python", "numberLines", "class1", "class2", "class3"]
                   , [ ("startFrom", "34") ]
                   )
                   "def func(x):\n  return y")
         , "Code directive with number-lines, no line specified" =: T.unlines
             [ ".. code::python"
-            , "   :number-lines: "
+            , "   :number-lines:"
             , ""
             , "  def func(x):"
             , "    return y"
             ]  =?>
               doc (codeBlockWith
                   ( ""
-                  , ["sourceCode", "python", "numberLines"]
-                  , [ ("startFrom", "") ]
+                  , ["python", "numberLines"]
+                  , []
                   )
                   "def func(x):\n  return y")
         , testGroup "literal / line / code blocks"
@@ -164,20 +173,29 @@ tests = [ "line block with blank line" =:
           [ "literal role prefix" =: ":literal:`a`" =?> para (code "a")
           , "literal role postfix" =: "`a`:literal:" =?> para (code "a")
           , "literal text" =: "``text``" =?> para (code "text")
-          , "code role" =: ":code:`a`" =?> para (codeWith ("", ["sourceCode"], []) "a")
+          , "code role" =: ":code:`a`" =?> para (codeWith ("", [], []) "a")
           , "inherited code role" =: ".. role:: codeLike(code)\n\n:codeLike:`a`"
-            =?> para (codeWith ("", ["codeLike", "sourceCode"], []) "a")
+            =?> para (codeWith ("", ["codeLike"], []) "a")
           , "custom code role with language field"
             =: ".. role:: lhs(code)\n    :language: haskell\n\n:lhs:`a`"
-            =?> para (codeWith ("", ["lhs", "haskell","sourceCode"], []) "a")
+            =?> para (codeWith ("", ["lhs", "haskell"], []) "a")
+          , "custom role with class field"
+            =: ".. role:: classy\n    :class: myclass\n\n:classy:`a`"
+            =?> para (spanWith ("", ["myclass"], []) "a")
+          , "custom role with class field containing multiple whitespace-separated classes"
+            =: ".. role:: classy\n    :class: myclass1 myclass2\n       myclass3\n\n:classy:`a`"
+            =?> para (spanWith ("", ["myclass1", "myclass2", "myclass3"], []) "a")
+          , "custom role with inherited class field"
+            =: ".. role:: classy\n    :class: myclass1\n.. role:: classier(classy)\n    :class: myclass2\n\n:classier:`a`"
+            =?> para (spanWith ("", ["myclass2", "myclass1"], []) "a")
           , "custom role with unspecified parent role"
             =: ".. role:: classy\n\n:classy:`text`"
             =?> para (spanWith ("", ["classy"], []) "text")
           , "role with recursive inheritance"
             =: ".. role:: haskell(code)\n.. role:: lhs(haskell)\n\n:lhs:`text`"
-            =?> para (codeWith ("", ["lhs", "haskell", "sourceCode"], []) "text")
+            =?> para (codeWith ("", ["lhs", "haskell"], []) "text")
           , "unknown role" =: ":unknown:`text`" =?>
-              para (spanWith ("",[],[("role","unknown")]) (str "text"))
+              para (codeWith ("",["interpreted-text"],[("role","unknown")]) "text")
           ]
         , testGroup "footnotes"
           [ "remove space before note" =: T.unlines
@@ -187,5 +205,19 @@ tests = [ "line block with blank line" =:
             , "   bar"
             ] =?>
               para ("foo" <> note (para "bar"))
+          ]
+        , testGroup "inlines"
+          [ "links can contain an URI without being parsed twice (#4581)" =:
+            "`http://loc <http://loc>`__" =?>
+            para (link "http://loc" "" "http://loc")
+          , "inline markup cannot be nested" =:
+            "**a*b*c**" =?>
+            para (strong "a*b*c")
+          , "bare URI parsing disabled inside emphasis (#4561)" =:
+            "*http://location*" =?>
+            para (emph (text "http://location"))
+          , "include newlines" =:
+            "**before\nafter**" =?>
+            para (strong (text "before\nafter"))
           ]
         ]

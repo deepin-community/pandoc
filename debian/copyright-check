@@ -1,29 +1,30 @@
 #!/bin/sh
-# Copyright © 2016-2017  Jonas Smedegaard <dr@jones.dk>
-# Description: helper script to update copyright_hints
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-# General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 set -eu
 
-# extract metadata where possible, and merge same-license Files sections
-export DEB_COPYRIGHT_EXTRACT_EXTS="png jpg jpeg gif ttf otf"
-export DEB_COPYRIGHT_CHECK_IGNORE_EXTS="docx pptx odt epub"
-export DEB_COPYRIGHT_CHECK_MERGE_SAME_LICENSE=yes
+SKIPFILES='skip|meta'
 
-make -f /usr/share/cdbs/1/rules/utils.mk pre-build || true
-make -f /usr/share/cdbs/1/rules/utils.mk clean DEB_COPYRIGHT_CHECK_STRICT=1
+# cleanup stray hint files from a previous run
+find -type f -regextype posix-egrep -regex "^.*:($SKIPFILES)$" -delete
 
-# unconditionally merge changes - safe to do with git-tracked package
-[ ! -f debian/copyright_newhints ] || mv -f debian/copyright_newhints debian/copyright_hints
+1>&2 echo 'skip binary files without parsable metadata ...'
+RE_skip='.*\.(docx|pptx|odt|epub)'
+find -type f -regextype posix-egrep -regex "^($RE_skip)$" -exec sh -c "echo 'License: UNKNOWN' > '{}:skip'" ';'
+
+# skip non-copyright-protected Debian files
+RE_debian='debian/(changelog|copyright(-check|_hints)?|source/lintian-overrides)'
+
+1>&2 echo 'extract metadata from binary files ...'
+RE_meta='.*\.(png|jpg|jpeg|gif|ttf|otf)'
+exiftool '-textOut!' %d%f.%e:meta -short -short -recurse -ext png -ext jpg -ext jpeg -ext gif -ext ttf -ext otf .
+
+RE_SKIP="$RE_skip|$RE_meta"
+
+# check for copyright and licensing statements
+licensecheck --copyright --deb-machine --recursive --lines 0 --check '.*' --ignore "^($RE_SKIP|$RE_debian)$" -- * > debian/copyright_hints
+
+# tidy listing of diverted files
+sed -i -e 's/:meta$//' -e 's/:skip$//' debian/copyright_hints
+
+# cleanup hint files
+find -type f -regextype posix-egrep -regex "^.*:($SKIPFILES)$" -delete

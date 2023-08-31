@@ -1,4 +1,6 @@
-# run "uscan --report" to check or "gbp import-orig --upstream-vcs-tag=foo --uscan" to update
 version=4
+# check: uscan --report
+# update: gbp import-orig --upstream-vcs-tag=vX.Y.Z --uscan
+
 https://hackage.haskell.org/package/@PACKAGE@/distro-monitor \
  .*-@ANY_VERSION@@ARCHIVE_EXT@

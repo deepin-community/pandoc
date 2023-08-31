@@ -1,24 +1,8 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright © 2017-2018 Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
+{-# LANGUAGE LambdaCase        #-}
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Lua
-   Copyright   : Copyright © 2017-2018 Albert Krewinkel
+   Copyright   : Copyright © 2017-2022 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
    Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
@@ -27,93 +11,130 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 Functions to initialize the Lua interpreter.
 -}
 module Text.Pandoc.Lua.Init
-  ( LuaException (..)
-  , LuaPackageParams (..)
-  , runPandocLua
-  , initLuaState
-  , luaPackageParams
-  , registerScriptPath
+  ( runLua
   ) where
 
-import Prelude
+import Control.Monad (forM, forM_, when)
+import Control.Monad.Catch (throwM, try)
 import Control.Monad.Trans (MonadIO (..))
-import Data.Data (Data, dataTypeConstrs, dataTypeOf, showConstr)
-import Data.IORef (newIORef, readIORef)
-import Data.Version (Version (versionBranch))
-import Foreign.Lua (Lua, LuaException (..))
+import Data.Maybe (catMaybes)
+import HsLua as Lua hiding (status, try)
 import GHC.IO.Encoding (getForeignEncoding, setForeignEncoding, utf8)
-import Paths_pandoc (version)
-import Text.Pandoc.Class (PandocIO, getCommonState, getUserDataDir, getMediaBag,
-                          setMediaBag)
-import Text.Pandoc.Definition (pandocTypesVersion)
-import Text.Pandoc.Lua.Packages (LuaPackageParams (..),
-                                 installPandocPackageSearcher)
-import Text.Pandoc.Lua.Util (loadScriptFromDataDir)
-
-import qualified Foreign.Lua as Lua
-import qualified Foreign.Lua.Module.Text as Lua
-import qualified Text.Pandoc.Definition as Pandoc
+import Text.Pandoc.Class.PandocMonad (PandocMonad, readDataFile)
+import Text.Pandoc.Error (PandocError (PandocLuaError))
+import Text.Pandoc.Lua.Packages (installPandocPackageSearcher)
+import Text.Pandoc.Lua.PandocLua (PandocLua, liftPandocLua, runPandocLua)
+import qualified Data.Text as T
+import qualified Lua.LPeg as LPeg
+import qualified Text.Pandoc.Lua.Module.Pandoc as ModulePandoc
 
 -- | Run the lua interpreter, using pandoc's default way of environment
--- initalization.
-runPandocLua :: Lua a -> PandocIO (Either LuaException a)
-runPandocLua luaOp = do
-  luaPkgParams <- luaPackageParams
+-- initialization.
+runLua :: (PandocMonad m, MonadIO m)
+       => LuaE PandocError a -> m (Either PandocError a)
+runLua luaOp = do
   enc <- liftIO $ getForeignEncoding <* setForeignEncoding utf8
-  res <- liftIO $ Lua.runLuaEither (initLuaState luaPkgParams *> luaOp)
+  res <- runPandocLua . try $ do
+    initLuaState
+    liftPandocLua luaOp
   liftIO $ setForeignEncoding enc
-  newMediaBag <- liftIO (readIORef (luaPkgMediaBag luaPkgParams))
-  setMediaBag newMediaBag
   return res
 
--- | Generate parameters required to setup pandoc's lua environment.
-luaPackageParams :: PandocIO LuaPackageParams
-luaPackageParams = do
-  commonState <- getCommonState
-  datadir <- getUserDataDir
-  mbRef <- liftIO . newIORef =<< getMediaBag
-  return LuaPackageParams
-    { luaPkgCommonState = commonState
-    , luaPkgDataDir = datadir
-    , luaPkgMediaBag = mbRef
-    }
+-- | Modules that are loaded at startup and assigned to fields in the
+-- pandoc module.
+loadedModules :: [(Name, Name)]
+loadedModules =
+  [ ("pandoc.List", "List")
+  , ("pandoc.mediabag", "mediabag")
+  , ("pandoc.path", "path")
+  , ("pandoc.system", "system")
+  , ("pandoc.template", "template")
+  , ("pandoc.types", "types")
+  , ("pandoc.utils", "utils")
+  , ("text", "text")
+  ]
 
--- Initialize the lua state with all required values
-initLuaState :: LuaPackageParams -> Lua ()
-initLuaState luaPkgParams = do
-  Lua.openlibs
-  Lua.preloadTextModule "text"
-  Lua.push (versionBranch version)
-  Lua.setglobal "PANDOC_VERSION"
-  Lua.push (versionBranch pandocTypesVersion)
-  Lua.setglobal "PANDOC_API_VERSION"
-  installPandocPackageSearcher luaPkgParams
-  loadScriptFromDataDir (luaPkgDataDir luaPkgParams) "init.lua"
-  putConstructorsInRegistry
-
-registerScriptPath :: FilePath -> Lua ()
-registerScriptPath fp = do
-  Lua.push fp
-  Lua.setglobal "PANDOC_SCRIPT_FILE"
-
-putConstructorsInRegistry :: Lua ()
-putConstructorsInRegistry = do
-  Lua.getglobal "pandoc"
-  constrsToReg $ Pandoc.Pandoc mempty mempty
-  constrsToReg $ Pandoc.Str mempty
-  constrsToReg $ Pandoc.Para mempty
-  constrsToReg $ Pandoc.Meta mempty
-  constrsToReg $ Pandoc.MetaList mempty
-  constrsToReg $ Pandoc.Citation mempty mempty mempty Pandoc.AuthorInText 0 0
-  putInReg "Attr"  -- used for Attr type alias
-  Lua.pop 1
+-- | Initialize the lua state with all required values
+initLuaState :: PandocLua ()
+initLuaState = do
+  liftPandocLua Lua.openlibs
+  installPandocPackageSearcher
+  initPandocModule
+  installLpegSearcher
+  setGlobalModules
+  loadInitScript "init.lua"
  where
-  constrsToReg :: Data a => a -> Lua ()
-  constrsToReg = mapM_ (putInReg . showConstr) . dataTypeConstrs . dataTypeOf
+  initPandocModule :: PandocLua ()
+  initPandocModule = do
+    -- Push module table
+    ModulePandoc.pushModule
+    -- register as loaded module
+    liftPandocLua $ do
+      Lua.getfield Lua.registryindex Lua.loaded
+      Lua.pushvalue (Lua.nth 2)
+      Lua.setfield (Lua.nth 2) "pandoc"
+      Lua.pop 1  -- remove LOADED table
+    -- load modules and add them to the `pandoc` module table.
+    liftPandocLua $ forM_ loadedModules $ \(pkgname, fieldname) -> do
+      Lua.getglobal "require"
+      Lua.pushName pkgname
+      Lua.call 1 1
+      Lua.setfield (nth 2) fieldname
+    -- assign module to global variable
+    liftPandocLua $ Lua.setglobal "pandoc"
 
-  putInReg :: String -> Lua ()
-  putInReg name = do
-    Lua.push ("pandoc." ++ name) -- name in registry
-    Lua.push name -- in pandoc module
-    Lua.rawget (Lua.nthFromTop 3)
-    Lua.rawset Lua.registryindex
+  loadInitScript :: FilePath -> PandocLua ()
+  loadInitScript scriptFile = do
+    script <- readDataFile scriptFile
+    status <- liftPandocLua $ Lua.dostring script
+    when (status /= Lua.OK) . liftPandocLua $ do
+      err <- popException
+      let prefix = "Couldn't load '" <> T.pack scriptFile <> "':\n"
+      throwM . PandocLuaError . (prefix <>) $ case err of
+        PandocLuaError msg -> msg
+        _                  -> T.pack $ show err
+
+  setGlobalModules :: PandocLua ()
+  setGlobalModules = liftPandocLua $ do
+    let globalModules =
+          [ ("lpeg", LPeg.luaopen_lpeg_ptr)  -- must be loaded first
+          , ("re", LPeg.luaopen_re_ptr)      -- re depends on lpeg
+          ]
+    loadedBuiltInModules <- fmap catMaybes . forM globalModules $
+      \(pkgname, luaopen) -> do
+        Lua.pushcfunction luaopen
+        usedBuiltIn <- Lua.pcall 0 1 Nothing >>= \case
+          OK -> do               -- all good, loading succeeded
+            -- register as loaded module so later modules can rely on this
+            Lua.getfield Lua.registryindex Lua.loaded
+            Lua.pushvalue (Lua.nth 2)
+            Lua.setfield (Lua.nth 2) pkgname
+            Lua.pop 1  -- pop _LOADED
+            return True
+          _  -> do               -- built-in library failed, load system lib
+            Lua.pop 1  -- ignore error message
+            -- Try loading via the normal package loading mechanism.
+            Lua.getglobal "require"
+            Lua.pushName pkgname
+            Lua.call 1 1  -- Throws an exception if loading failed again!
+            return False
+
+        -- Module on top of stack. Register as global
+        Lua.setglobal pkgname
+        return $ if usedBuiltIn then Just pkgname else Nothing
+
+    -- Remove module entry from _LOADED table in registry if we used a
+    -- built-in library. This ensures that later calls to @require@ will
+    -- prefer the shared library, if any.
+    forM_ loadedBuiltInModules $ \pkgname -> do
+      Lua.getfield Lua.registryindex Lua.loaded
+      Lua.pushnil
+      Lua.setfield (Lua.nth 2) pkgname
+      Lua.pop 1  -- registry
+
+  installLpegSearcher :: PandocLua ()
+  installLpegSearcher = liftPandocLua $ do
+    Lua.getglobal' "package.searchers"
+    Lua.pushHaskellFunction $ Lua.state >>= liftIO . LPeg.lpeg_searcher
+    Lua.rawseti (Lua.nth 2) . (+1) . fromIntegral =<< Lua.rawlen (Lua.nth 2)
+    Lua.pop 1  -- remove 'package.searchers' from stack

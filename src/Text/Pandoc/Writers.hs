@@ -1,28 +1,10 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2006-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
 {-# LANGUAGE FlexibleInstances   #-}
 {-# LANGUAGE GADTs               #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
+{-# LANGUAGE OverloadedStrings   #-}
 {- |
    Module      : Text.Pandoc
-   Copyright   : Copyright (C) 2006-2018 John MacFarlane
+   Copyright   : Copyright (C) 2006-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -37,10 +19,13 @@ module Text.Pandoc.Writers
       Writer(..)
     , writers
     , writeAsciiDoc
+    , writeAsciiDoctor
     , writeBeamer
+    , writeBibTeX
+    , writeBibLaTeX
     , writeCommonMark
     , writeConTeXt
-    , writeCustom
+    , writeCslJson
     , writeDZSlides
     , writeDocbook4
     , writeDocbook5
@@ -49,6 +34,7 @@ module Text.Pandoc.Writers
     , writeEPUB2
     , writeEPUB3
     , writeFB2
+    , writeIpynb
     , writeHaddock
     , writeHtml4
     , writeHtml4String
@@ -56,10 +42,15 @@ module Text.Pandoc.Writers
     , writeHtml5String
     , writeICML
     , writeJATS
+    , writeJatsArchiving
+    , writeJatsArticleAuthoring
+    , writeJatsPublishing
     , writeJSON
+    , writeJira
     , writeLaTeX
     , writeMan
     , writeMarkdown
+    , writeMarkua
     , writeMediaWiki
     , writeMs
     , writeMuse
@@ -79,32 +70,39 @@ module Text.Pandoc.Writers
     , writeTEI
     , writeTexinfo
     , writeTextile
+    , writeXWiki
     , writeZimWiki
     , getWriter
     ) where
 
-import Prelude
+import Control.Monad.Except (throwError)
+import Control.Monad (unless)
 import Data.Aeson
 import qualified Data.ByteString.Lazy as BL
-import Data.List (intercalate)
 import Data.Text (Text)
+import qualified Data.Text as T
+import Text.Pandoc.Shared (tshow)
 import Text.Pandoc.Class
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
 import qualified Text.Pandoc.UTF8 as UTF8
+import Text.Pandoc.Error
 import Text.Pandoc.Writers.AsciiDoc
+import Text.Pandoc.Writers.BibTeX
 import Text.Pandoc.Writers.CommonMark
 import Text.Pandoc.Writers.ConTeXt
-import Text.Pandoc.Writers.Custom
+import Text.Pandoc.Writers.CslJson
 import Text.Pandoc.Writers.Docbook
 import Text.Pandoc.Writers.Docx
 import Text.Pandoc.Writers.DokuWiki
 import Text.Pandoc.Writers.EPUB
 import Text.Pandoc.Writers.FB2
+import Text.Pandoc.Writers.Ipynb
 import Text.Pandoc.Writers.Haddock
 import Text.Pandoc.Writers.HTML
 import Text.Pandoc.Writers.ICML
 import Text.Pandoc.Writers.JATS
+import Text.Pandoc.Writers.Jira
 import Text.Pandoc.Writers.LaTeX
 import Text.Pandoc.Writers.Man
 import Text.Pandoc.Writers.Markdown
@@ -122,17 +120,17 @@ import Text.Pandoc.Writers.RTF
 import Text.Pandoc.Writers.TEI
 import Text.Pandoc.Writers.Texinfo
 import Text.Pandoc.Writers.Textile
+import Text.Pandoc.Writers.XWiki
 import Text.Pandoc.Writers.ZimWiki
-import Text.Parsec.Error
 
 data Writer m = TextWriter (WriterOptions -> Pandoc -> m Text)
               | ByteStringWriter (WriterOptions -> Pandoc -> m BL.ByteString)
 
 -- | Association list of formats and writers.
-writers :: PandocMonad m => [ ( String, Writer m) ]
+writers :: PandocMonad m => [ (Text, Writer m) ]
 writers = [
    ("native"       , TextWriter writeNative)
-  ,("json"         , TextWriter $ \o d -> return $ writeJSON o d)
+  ,("json"         , TextWriter writeJSON)
   ,("docx"         , ByteStringWriter writeDocx)
   ,("odt"          , ByteStringWriter writeODT)
   ,("pptx"         , ByteStringWriter writePowerpoint)
@@ -140,6 +138,7 @@ writers = [
   ,("epub2"        , ByteStringWriter writeEPUB2)
   ,("epub3"        , ByteStringWriter writeEPUB3)
   ,("fb2"          , TextWriter writeFB2)
+  ,("ipynb"        , TextWriter writeIpynb)
   ,("html"         , TextWriter writeHtml5String)
   ,("html4"        , TextWriter writeHtml4String)
   ,("html5"        , TextWriter writeHtml5String)
@@ -152,7 +151,11 @@ writers = [
   ,("docbook"      , TextWriter writeDocbook5)
   ,("docbook4"     , TextWriter writeDocbook4)
   ,("docbook5"     , TextWriter writeDocbook5)
-  ,("jats"         , TextWriter writeJATS)
+  ,("jats"         , TextWriter writeJatsArchiving)
+  ,("jats_articleauthoring", TextWriter writeJatsArticleAuthoring)
+  ,("jats_publishing" , TextWriter writeJatsPublishing)
+  ,("jats_archiving" , TextWriter writeJatsArchiving)
+  ,("jira"         , TextWriter writeJira)
   ,("opml"         , TextWriter writeOPML)
   ,("opendocument" , TextWriter writeOpenDocument)
   ,("latex"        , TextWriter writeLaTeX)
@@ -170,28 +173,49 @@ writers = [
   ,("rst"          , TextWriter writeRST)
   ,("mediawiki"    , TextWriter writeMediaWiki)
   ,("dokuwiki"     , TextWriter writeDokuWiki)
+  ,("xwiki"        , TextWriter writeXWiki)
   ,("zimwiki"      , TextWriter writeZimWiki)
   ,("textile"      , TextWriter writeTextile)
   ,("rtf"          , TextWriter writeRTF)
   ,("org"          , TextWriter writeOrg)
   ,("asciidoc"     , TextWriter writeAsciiDoc)
+  ,("asciidoctor"  , TextWriter writeAsciiDoctor)
   ,("haddock"      , TextWriter writeHaddock)
   ,("commonmark"   , TextWriter writeCommonMark)
+  ,("commonmark_x" , TextWriter writeCommonMark)
   ,("gfm"          , TextWriter writeCommonMark)
   ,("tei"          , TextWriter writeTEI)
   ,("muse"         , TextWriter writeMuse)
+  ,("csljson"      , TextWriter writeCslJson)
+  ,("bibtex"       , TextWriter writeBibTeX)
+  ,("biblatex"     , TextWriter writeBibLaTeX)
+  ,("markua"       , TextWriter writeMarkua)
   ]
 
 -- | Retrieve writer, extensions based on formatSpec (format+extensions).
-getWriter :: PandocMonad m => String -> Either String (Writer m, Extensions)
-getWriter s
-  = case parseFormatSpec s of
-         Left e  -> Left $ intercalate "\n" [m | Message m <- errorMessages e]
-         Right (writerName, setExts) ->
-             case lookup writerName writers of
-                     Nothing -> Left $ "Unknown writer: " ++ writerName
-                     Just r -> Right (r, setExts $
-                                  getDefaultExtensions writerName)
+getWriter :: PandocMonad m => Text -> m (Writer m, Extensions)
+getWriter s =
+  case parseFormatSpec s of
+        Left e  -> throwError $ PandocAppError $
+                    "Error parsing writer format " <> tshow s <> ": " <> tshow e
+        Right (writerName, extsToEnable, extsToDisable) ->
+           case lookup writerName writers of
+                   Nothing  -> throwError $
+                                 PandocUnknownWriterError writerName
+                   Just  w  -> do
+                     let allExts = getAllExtensions writerName
+                     let exts = foldr disableExtension
+                           (foldr enableExtension
+                             (getDefaultExtensions writerName)
+                                   extsToEnable) extsToDisable
+                     mapM_ (\ext ->
+                              unless (extensionEnabled ext allExts) $
+                                throwError $
+                                   PandocUnsupportedExtensionError
+                                   (T.drop 4 $ T.pack $ show ext) writerName)
+                          (extsToEnable ++ extsToDisable)
+                     return (w, exts)
 
-writeJSON :: WriterOptions -> Pandoc -> Text
-writeJSON _ = UTF8.toText . BL.toStrict . encode
+
+writeJSON :: PandocMonad m => WriterOptions -> Pandoc -> m Text
+writeJSON _ = return . UTF8.toText . BL.toStrict . encode

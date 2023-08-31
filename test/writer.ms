@@ -27,11 +27,11 @@
 .\" line height
 .nr VS 12p
 .\" font family: A, BM, H, HN, N, P, T, ZCM
-.fam T
+.fam P
 .\" paragraph indent
-.nr PI 2m
+.nr PI 0m
 .\" interparagraph space
-.nr PD 0.33v
+.nr PD 0.4v
 .\" footnote width
 .nr FL \n[LL]
 .\" footnote point size
@@ -49,6 +49,9 @@
 .\" comment these out if you want a dot after section numbers:
 .als SN SN-NO-DOT
 .als SN-STYLE SN-NO-DOT
+.\" page numbers in footer, centered
+.rm CH
+.ds CF %
 .\" pdf outline fold level
 .nr PDFOUTLINE.FOLDLEVEL 3
 .\" start out in outline view
@@ -75,7 +78,7 @@ July 17, 2006
 .1C
 .LP
 This is a set of tests for pandoc.
-Most of them are adapted from John Gruber’s markdown test suite.
+Most of them are adapted from John Gruber\[cq]s markdown test suite.
 .HLINE
 .SH 1
 Headers
@@ -126,7 +129,7 @@ Paragraphs
 .pdfhref O 1 "Paragraphs"
 .pdfhref M "paragraphs"
 .LP
-Here’s a regular paragraph.
+Here\[cq]s a regular paragraph.
 .PP
 In Markdown 1.0.0 and earlier.
 Version 8.
@@ -134,7 +137,7 @@ This line turns into a list item.
 Because a hard-wrapped line in the middle of a paragraph looked like a list
 item.
 .PP
-Here’s one with a bullet.
+Here\[cq]s one with a bullet.
 * criminey.
 .PP
 There should be a hard line break
@@ -147,19 +150,19 @@ Block Quotes
 .pdfhref M "block-quotes"
 .LP
 E-mail style:
-.RS
+.QS
 .LP
 This is a block quote.
 It is pretty short.
-.RE
-.RS
+.QE
+.QS
 .LP
 Code in a block quote:
 .IP
 .nf
 \f[C]
-sub\ status\ {
-\ \ \ \ print\ \[dq]working\[dq];
+sub status {
+    print \[dq]working\[dq];
 }
 \f[]
 .fi
@@ -171,15 +174,15 @@ item one
 item two
 .LP
 Nested block quotes:
-.RS
+.QS
 .LP
 nested
-.RE
-.RS
+.QE
+.QS
 .LP
 nested
-.RE
-.RE
+.QE
+.QE
 .LP
 This should not be a block quote: 2 > 1.
 .PP
@@ -194,13 +197,13 @@ Code:
 .IP
 .nf
 \f[C]
-----\ (should\ be\ four\ hyphens)
+---- (should be four hyphens)
 
-sub\ status\ {
-\ \ \ \ print\ \[dq]working\[dq];
+sub status {
+    print \[dq]working\[dq];
 }
 
-this\ code\ block\ is\ indented\ by\ one\ tab
+this code block is indented by one tab
 \f[]
 .fi
 .LP
@@ -208,9 +211,9 @@ And:
 .IP
 .nf
 \f[C]
-\ \ \ \ this\ code\ block\ is\ indented\ by\ two\ tabs
+    this code block is indented by two tabs
 
-These\ should\ not\ be\ escaped:\ \ \\$\ \\\\\ \\>\ \\[\ \\{
+These should not be escaped:  \[rs]$ \[rs]\[rs] \[rs]> \[rs][ \[rs]{
 \f[]
 .fi
 .HLINE
@@ -314,7 +317,7 @@ Item 1, graf one.
 .PP
 Item 1.
 graf two.
-The quick brown fox jumped over the lazy dog’s back.
+The quick brown fox jumped over the lazy dog\[cq]s back.
 .RE
 .IP " 2." 4
 Item 2.
@@ -335,7 +338,7 @@ Tab
 .RE
 .RE
 .LP
-Here’s another:
+Here\[cq]s another:
 .IP " 1." 4
 First
 .IP " 2." 4
@@ -431,7 +434,7 @@ Nested.
 .LP
 Should not be a list item:
 .PP
-M.A.\~2007
+M.A.\ 2007
 .PP
 B.
 Williams
@@ -442,112 +445,112 @@ Definition Lists
 .pdfhref M "definition-lists"
 .LP
 Tight using spaces:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .RE
-.IP "banana"
+.IP "\f[B]banana\f[R]" 3
 yellow fruit
-.RS
+.RS 3
 .RE
 .LP
 Tight using tabs:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .RE
-.IP "banana"
+.IP "\f[B]banana\f[R]" 3
 yellow fruit
-.RS
+.RS 3
 .RE
 .LP
 Loose:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .RE
-.IP "banana"
+.IP "\f[B]banana\f[R]" 3
 yellow fruit
-.RS
+.RS 3
 .RE
 .LP
 Multiple blocks with italics:
-.IP "\f[I]apple\f[R]"
+.IP "\f[B]\f[BI]apple\f[B]\f[R]" 3
 red fruit
-.RS
+.RS 3
 .PP
 contains seeds, crisp, pleasant to taste
 .RE
-.IP "\f[I]orange\f[R]"
+.IP "\f[B]\f[BI]orange\f[B]\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .IP
 .nf
 \f[C]
-{\ orange\ code\ block\ }
+{ orange code block }
 \f[]
 .fi
-.RS
+.QS
 .LP
 orange block quote
-.RE
+.QE
 .RE
 .LP
 Multiple definitions, tight:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
 computer
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .RE
 bank
-.RS
+.RS 3
 .RE
 .LP
 Multiple definitions, loose:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
 computer
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .RE
 bank
-.RS
+.RS 3
 .RE
 .LP
 Blank line after term, indented marker, alternate markers:
-.IP "apple"
+.IP "\f[B]apple\f[R]" 3
 red fruit
-.RS
+.RS 3
 .RE
 computer
-.RS
+.RS 3
 .RE
-.IP "orange"
+.IP "\f[B]orange\f[R]" 3
 orange fruit
-.RS
+.RS 3
 .IP " 1." 4
 sublist
 .IP " 2." 4
@@ -570,7 +573,7 @@ Interpreted markdown in a table:
 This is \f[I]emphasized\f[R]
 And this is \f[B]strong\f[R]
 .PP
-Here’s a simple block:
+Here\[cq]s a simple block:
 .LP
 foo
 .LP
@@ -579,7 +582,7 @@ This should be a code block, though:
 .nf
 \f[C]
 <div>
-\ \ \ \ foo
+    foo
 </div>
 \f[]
 .fi
@@ -603,7 +606,7 @@ Code block:
 .IP
 .nf
 \f[C]
-<!--\ Comment\ -->
+<!-- Comment -->
 \f[]
 .fi
 .LP
@@ -613,11 +616,11 @@ Code:
 .IP
 .nf
 \f[C]
-<hr\ />
+<hr />
 \f[]
 .fi
 .LP
-Hr’s:
+Hr\[cq]s:
 .HLINE
 .SH 1
 Inline Markup
@@ -641,17 +644,17 @@ So is \f[B]\f[BI]this\f[B]\f[R] word.
 .PP
 So is \f[B]\f[BI]this\f[B]\f[R] word.
 .PP
-This is code: \f[C]>\f[R], \f[C]$\f[R], \f[C]\\\f[R], \f[C]\\$\f[R],
+This is code: \f[C]>\f[R], \f[C]$\f[R], \f[C]\[rs]\f[R], \f[C]\[rs]$\f[R],
 \f[C]<html>\f[R].
 .PP
 \m[strikecolor]This is \f[I]strikeout\f[R].\m[]
 .PP
-Superscripts: a\*{bc\*}d a\*{\f[I]hello\f[R]\*} a\*{hello\~there\*}.
+Superscripts: a\*{bc\*}d a\*{\f[I]hello\f[R]\*} a\*{hello\ there\*}.
 .PP
-Subscripts: H\*<2\*>O, H\*<23\*>O, H\*<many\~of\~them\*>O.
+Subscripts: H\*<2\*>O, H\*<23\*>O, H\*<many\ of\ them\*>O.
 .PP
-These should not be superscripts or subscripts, because of the unescaped
-spaces: a\[ha]b c\[ha]d, a\[ti]b c\[ti]d.
+These should not be superscripts or subscripts, because of the unescaped spaces:
+a\[ha]b c\[ha]d, a\[ti]b c\[ti]d.
 .HLINE
 .SH 1
 Smart quotes, ellipses, dashes
@@ -666,7 +669,7 @@ Smart quotes, ellipses, dashes
 `Oak,' `elm,' and `beech' are names of trees.
 So is `pine.'
 .PP
-`He said, \[lq]I want to go.\[rq]' Were you alive in the 70’s?
+`He said, \[lq]I want to go.\[rq]' Were you alive in the 70\[cq]s?
 .PP
 Here is some quoted `\f[C]code\f[R]' and a \[lq]\c
 .pdfhref W -D "http://example.com/?foo=1&bar=2" -A "\c" \
@@ -695,16 +698,16 @@ LaTeX
 .IP \[bu] 3
 @p@-Tree
 .IP \[bu] 3
-Here’s some display math:
+Here\[cq]s some display math:
 .EQ
-d over {d x} f ( x ) = lim sub {h -> 0} {f ( x + h ) \[u2212] f ( x )} over h
+d over {d x} f left ( x right ) = lim sub {h -> 0} {f left ( x + h right ) \[u2212] f left ( x right )} over h
 .EN
 .IP \[bu] 3
-Here’s one that has a line break in it: @alpha + omega times x sup 2@.
+Here\[cq]s one that has a line break in it: @alpha + omega times x sup 2@.
 .LP
-These shouldn’t be math:
+These shouldn\[cq]t be math:
 .IP \[bu] 3
-To get the famous equation, write \f[C]$e\ =\ mc\[ha]2$\f[R].
+To get the famous equation, write \f[C]$e = mc\[ha]2$\f[R].
 .IP \[bu] 3
 $22,000 is a \f[I]lot\f[R] of money.
 So is $34,000.
@@ -714,7 +717,7 @@ Shoes ($20) and socks ($5).
 .IP \[bu] 3
 Escaped \f[C]$\f[R]: $73 \f[I]this should be emphasized\f[R] 23$.
 .LP
-Here’s a LaTeX table:
+Here\[cq]s a LaTeX table:
 .HLINE
 .SH 1
 Special Characters
@@ -743,9 +746,9 @@ This & that.
 .PP
 6 > 5.
 .PP
-Backslash: \\
+Backslash: \[rs]
 .PP
-Backtick: \`
+Backtick: \[ga]
 .PP
 Asterisk: *
 .PP
@@ -867,7 +870,7 @@ This should [not][] be a link.
 .IP
 .nf
 \f[C]
-[not]:\ /url
+[not]: /url
 \f[]
 .fi
 .LP
@@ -885,22 +888,22 @@ With ampersands
 .pdfhref O 2 "With ampersands"
 .pdfhref M "with-ampersands"
 .LP
-Here’s a \c
+Here\[cq]s a \c
 .pdfhref W -D "http://example.com/?foo=1&bar=2" -A "\c" \
  -- "link with an ampersand in the URL"
 \&.
 .PP
-Here’s a link with an amersand in the link text: \c
+Here\[cq]s a link with an amersand in the link text: \c
 .pdfhref W -D "http://att.com/" -A "\c" \
  -- "AT&T"
 \&.
 .PP
-Here’s an \c
+Here\[cq]s an \c
 .pdfhref W -D "/script?foo=1&bar=2" -A "\c" \
  -- "inline link"
 \&.
 .PP
-Here’s an \c
+Here\[cq]s an \c
 .pdfhref W -D "/script?foo=1&bar=2" -A "\c" \
  -- "inline link in pointy braces"
 \&.
@@ -925,21 +928,21 @@ It should.
 .LP
 An e-mail address: \c
 .pdfhref W -D "mailto:nobody%40nowhere.net" -A "\c" \
- -- "nobody\@nowhere.net"
+ -- "nobody\[at]nowhere.net"
 \&
-.RS
+.QS
 .LP
 Blockquoted: \c
 .pdfhref W -D "http://example.com/" -A "\c" \
  -- "http://example.com/"
 \&
-.RE
+.QE
 .LP
 Auto-links should not occur here: \f[C]<http://example.com/>\f[R]
 .IP
 .nf
 \f[C]
-or\ here:\ <http://example.com/>
+or here: <http://example.com/>
 \f[]
 .fi
 .HLINE
@@ -967,20 +970,20 @@ It need not be placed at the end of the document.
 .FE
 and another.\**
 .FS
-Here’s the long note.
+Here\[cq]s the long note.
 This one contains multiple blocks.
 .PP
-Subsequent blocks are indented to show that they belong to the footnote (as
-with list items).
+Subsequent blocks are indented to show that they belong to the footnote (as with
+list items).
 .IP
 .nf
 \f[C]
-\ \ {\ <code>\ }
+  { <code> }
 \f[]
 .fi
 .LP
-If you want, you can indent every line, but you can also be lazy and just
-indent the first line of each block.
+If you want, you can indent every line, but you can also be lazy and just indent
+the first line of each block.
 .FE
 This should \f[I]not\f[R] be a footnote reference, because it contains a
 space.[\[ha]my note] Here is an inline note.\**
@@ -991,13 +994,13 @@ Inline notes may contain \c
  -- "links"
 \& and \f[C]]\f[R] verbatim characters, as well as [bracketed text].
 .FE
-.RS
+.QS
 .LP
 Notes can go in quotes.\**
 .FS
 In quote.
 .FE
-.RE
+.QE
 .IP " 1." 4
 And in list items.\**
 .FS

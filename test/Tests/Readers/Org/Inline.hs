@@ -1,14 +1,22 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Inline
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Tests parsing of org inlines.
+-}
 module Tests.Readers.Org.Inline (tests) where
 
-import Prelude
 import Data.List (intersperse)
 import Test.Tasty (TestTree, testGroup)
 import Tests.Helpers ((=?>))
 import Tests.Readers.Org.Shared ((=:), spcSep)
 import Text.Pandoc.Builder
-import Text.Pandoc.Shared (underlineSpan)
 import qualified Data.Text as T
 import qualified Tests.Readers.Org.Inline.Citation as Citation
 import qualified Tests.Readers.Org.Inline.Note as Note
@@ -38,7 +46,7 @@ tests =
 
   , "Underline" =:
       "_underline_" =?>
-      para (underlineSpan "underline")
+      para (underline "underline")
 
   , "Strikeout" =:
       "+Kill Bill+" =?>
@@ -46,7 +54,7 @@ tests =
 
   , "Verbatim" =:
       "=Robot.rock()=" =?>
-      para (code "Robot.rock()")
+      para (codeWith ("", ["verbatim"], []) "Robot.rock()")
 
   , "Code" =:
       "~word for word~" =?>
@@ -96,7 +104,7 @@ tests =
       "[fn::Schreib mir eine E-Mail]" =?>
       para (note $ para "Schreib mir eine E-Mail")
 
-  , "Markup-chars not occuring on word break are symbols" =:
+  , "Markup-chars not occurring on word break are symbols" =:
       T.unlines [ "this+that+ +so+on"
                 , "seven*eight* nine*"
                 , "+not+funny+"
@@ -180,30 +188,42 @@ tests =
                   ])
   , "Verbatim text can contain equal signes (=)" =:
       "=is_subst = True=" =?>
-      para (code "is_subst = True")
+      para (codeWith ("", ["verbatim"], []) "is_subst = True")
 
   , testGroup "Images"
     [ "Image" =:
-        "[[./sunset.jpg]]" =?>
-    para (image "./sunset.jpg" "" "")
+      "[[./sunset.jpg]]" =?>
+      para (image "./sunset.jpg" "" "")
 
     , "Image with explicit file: prefix" =:
-        "[[file:sunrise.jpg]]" =?>
-    para (image "sunrise.jpg" "" "")
+      "[[file:sunrise.jpg]]" =?>
+      para (image "sunrise.jpg" "" "")
 
     , "Multiple images within a paragraph" =:
-        T.unlines [ "[[file:sunrise.jpg]]"
-                  , "[[file:sunset.jpg]]"
-                  ] =?>
-    para ((image "sunrise.jpg" "" "")
+      T.unlines [ "[[file:sunrise.jpg]]"
+                , "[[file:sunset.jpg]]"
+                ] =?>
+      para (image "sunrise.jpg" "" ""
              <> softbreak
-             <> (image "sunset.jpg" "" ""))
+             <> image "sunset.jpg" "" "")
 
     , "Image with html attributes" =:
-        T.unlines [ "#+ATTR_HTML: :width 50%"
-                  , "[[file:guinea-pig.gif]]"
-                  ] =?>
-    para (imageWith ("", [], [("width", "50%")]) "guinea-pig.gif" "" "")
+      T.unlines [ "#+attr_html: :width 50%"
+                , "[[file:guinea-pig.gif]]"
+                ] =?>
+      para (imageWith ("", [], [("width", "50%")]) "guinea-pig.gif" "" "")
+
+    , "HTML attributes can have trailing spaces" =:
+      T.unlines [ "#+attr_html: :width 100% :height 360px  "
+                , "[[file:fireworks.jpg]]"
+                ] =?>
+      let kv = [("width", "100%"), ("height", "360px")]
+      in para (imageWith (mempty, mempty, kv) "fireworks.jpg" mempty mempty)
+
+
+    , "Uppercase extension" =:
+      "[[file:test.PNG]]" =?>
+      para (image "test.PNG" "" "")
     ]
 
   , "Explicit link" =:
@@ -214,6 +234,10 @@ tests =
   , "Self-link" =:
       "[[http://zeitlens.com/]]" =?>
     para (link "http://zeitlens.com/" "" "http://zeitlens.com/")
+
+  , "Internal self-link (reference)" =:
+    "[[#rabbit]]" =?>
+    para (link "#rabbit" "" "#rabbit")
 
   , "Absolute file link" =:
       "[[/url][hi]]" =?>
@@ -234,6 +258,10 @@ tests =
   , "Image link with non-image target" =:
       "[[http://example.com][./logo.png]]" =?>
     para (link "http://example.com" "" (image "./logo.png" "" ""))
+
+  , "Link to image" =:
+    "[[https://example.com/image.jpg][Look!]]" =?>
+    para (link "https://example.com/image.jpg" "" (str "Look!"))
 
   , "Plain link" =:
       "Posts on http://zeitlens.com/ can be funny at times." =?>
@@ -280,6 +308,13 @@ tests =
                        )
                        "echo 'Hello, World'")
 
+  , "Inline code block with a blank argument array" =:
+      "src_sh[]{echo 'Hello, World'}" =?>
+    para (codeWith ( ""
+                       , [ "bash" ]
+                       , [ ("org-language", "sh") ])
+                       "echo 'Hello, World'")
+
   , "Inline code block with toggle" =:
       "src_sh[:toggle]{echo $HOME}" =?>
     para (codeWith ( ""
@@ -302,9 +337,13 @@ tests =
       "\\emph{Emphasis mine}" =?>
       para (emph "Emphasis mine")
 
-  , "Inline LaTeX math symbol" =:
-      "\\tau" =?>
-      para (emph "τ")
+  , "Inline math symbols" =:
+      "\\tau \\oplus \\alpha" =?>
+      para "τ ⊕ α"
+
+  , "Inline LaTeX math command" =:
+      "\\crarr" =?>
+      para "↵"
 
   , "Unknown inline LaTeX command" =:
       "\\notacommand{foo}" =?>
@@ -336,7 +375,7 @@ tests =
                 ] =?>
       para (emph "Hello, World")
 
-  , "Macro repeting its argument" =:
+  , "Macro duplicating its argument" =:
       T.unlines [ "#+MACRO: HELLO $1$1"
                 , "{{{HELLO(moin)}}}"
                 ] =?>

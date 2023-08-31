@@ -1,25 +1,7 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2014-2018 Jesse Rosenthal <jrosenthal@jhu.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Readers.Docx.Lists
-   Copyright   : Copyright (C) 2014-2018 Jesse Rosenthal
+   Copyright   : Copyright (C) 2014-2020 Jesse Rosenthal
    License     : GNU GPL, version 2 or above
 
    Maintainer  : Jesse Rosenthal <jrosenthal@jhu.edu>
@@ -32,47 +14,50 @@ Functions for converting flat docx paragraphs into nested lists.
 module Text.Pandoc.Readers.Docx.Lists ( blocksToBullets
                                       , blocksToDefinitions
                                       , listParagraphDivs
+                                      , listParagraphStyles
                                       ) where
 
-import Prelude
 import Data.List
 import Data.Maybe
+import Data.String (fromString)
+import qualified Data.Text as T
 import Text.Pandoc.Generic (bottomUp)
 import Text.Pandoc.JSON
-import Text.Pandoc.Shared (trim)
+import Text.Pandoc.Readers.Docx.Parse (ParaStyleName)
+import Text.Pandoc.Shared (trim, safeRead)
 
 isListItem :: Block -> Bool
 isListItem (Div (_, classes, _) _) | "list-item" `elem` classes = True
 isListItem _                       = False
 
 getLevel :: Block -> Maybe Integer
-getLevel (Div (_, _, kvs) _) =  read <$> lookup "level" kvs
+getLevel (Div (_, _, kvs) _) =  lookup "level" kvs >>= safeRead
 getLevel _                   = Nothing
 
 getLevelN :: Block -> Integer
 getLevelN b = fromMaybe (-1) (getLevel b)
 
 getNumId :: Block -> Maybe Integer
-getNumId (Div (_, _, kvs) _) =  read <$> lookup "num-id" kvs
+getNumId (Div (_, _, kvs) _) =  lookup "num-id" kvs >>= safeRead
 getNumId _                   = Nothing
 
 getNumIdN :: Block -> Integer
 getNumIdN b = fromMaybe (-1) (getNumId b)
 
-getText :: Block -> Maybe String
+getText :: Block -> Maybe T.Text
 getText (Div (_, _, kvs) _) = lookup "text" kvs
 getText _                   = Nothing
 
 data ListType = Itemized | Enumerated ListAttributes
 
-listStyleMap :: [(String, ListNumberStyle)]
+listStyleMap :: [(T.Text, ListNumberStyle)]
 listStyleMap = [("upperLetter", UpperAlpha),
                 ("lowerLetter", LowerAlpha),
                 ("upperRoman", UpperRoman),
                 ("lowerRoman", LowerRoman),
                 ("decimal", Decimal)]
 
-listDelimMap :: [(String, ListNumberDelim)]
+listDelimMap :: [(T.Text, ListNumberDelim)]
 listDelimMap = [("%1)", OneParen),
                 ("(%1)", TwoParens),
                 ("%1.", Period)]
@@ -89,15 +74,18 @@ getListType b@(Div (_, _, kvs) _) | isListItem b =
      Just f        ->
        case txt of
          Just t -> Just $ Enumerated (
-                  read (fromMaybe "1" start) :: Int,
+                  fromMaybe 1 (start >>= safeRead) :: Int,
                   fromMaybe DefaultStyle (lookup f listStyleMap),
                   fromMaybe DefaultDelim (lookup t listDelimMap))
          Nothing -> Nothing
      _ -> Nothing
 getListType _ = Nothing
 
-listParagraphDivs :: [String]
-listParagraphDivs = ["ListParagraph"]
+listParagraphDivs :: [T.Text]
+listParagraphDivs = ["list-paragraph"]
+
+listParagraphStyles :: [ParaStyleName]
+listParagraphStyles = map (fromString . T.unpack) listParagraphDivs
 
 -- This is a first stab at going through and attaching meaning to list
 -- paragraphs, without an item marker, following a list item. We
@@ -165,7 +153,7 @@ singleItemHeaderToHeader blk                            = blk
 blocksToBullets :: [Block] -> [Block]
 blocksToBullets blks =
   map singleItemHeaderToHeader $
-  bottomUp removeListDivs $flatToBullets (handleListParagraphs blks)
+  bottomUp removeListDivs $ flatToBullets (handleListParagraphs blks)
 
 plainParaInlines :: Block -> [Inline]
 plainParaInlines (Plain ils) = ils
@@ -178,22 +166,21 @@ blocksToDefinitions' defAcc acc [] =
   reverse $ DefinitionList (reverse defAcc) : acc
 blocksToDefinitions' defAcc acc
   (Div (_, classes1, _) blks1 : Div (ident2, classes2, kvs2) blks2 : blks)
-  | "DefinitionTerm" `elem` classes1 && "Definition"  `elem` classes2 =
+  | "Definition-Term" `elem` classes1 && "Definition"  `elem` classes2 =
     let remainingAttr2 = (ident2, delete "Definition" classes2, kvs2)
         pair = if remainingAttr2 == ("", [], []) then (concatMap plainParaInlines blks1, [blks2]) else (concatMap plainParaInlines blks1, [[Div remainingAttr2 blks2]])
     in
      blocksToDefinitions' (pair : defAcc) acc blks
-blocksToDefinitions' defAcc acc
+blocksToDefinitions' ((defTerm, defItems):defs) acc
   (Div (ident2, classes2, kvs2) blks2 : blks)
-  | (not . null) defAcc && "Definition"  `elem` classes2 =
+  | "Definition"  `elem` classes2 =
     let remainingAttr2 = (ident2, delete "Definition" classes2, kvs2)
-        defItems2 = case remainingAttr2 == ("", [], []) of
-          True  -> blks2
-          False -> [Div remainingAttr2 blks2]
-        ((defTerm, defItems):defs) = defAcc
-        defAcc' = case null defItems of
-          True -> (defTerm, [defItems2]) : defs
-          False -> (defTerm, init defItems ++ [last defItems ++ defItems2]) : defs
+        defItems2 = if remainingAttr2 == ("", [], [])
+          then blks2
+          else [Div remainingAttr2 blks2]
+        defAcc' = if null defItems
+          then (defTerm, [defItems2]) : defs
+          else (defTerm, init defItems ++ [last defItems ++ defItems2]) : defs
     in
      blocksToDefinitions' defAcc' acc blks
 blocksToDefinitions' [] acc (b:blks) =
@@ -216,8 +203,6 @@ removeListDivs' blk = [blk]
 
 removeListDivs :: [Block] -> [Block]
 removeListDivs = concatMap removeListDivs'
-
-
 
 blocksToDefinitions :: [Block] -> [Block]
 blocksToDefinitions = blocksToDefinitions' [] []
