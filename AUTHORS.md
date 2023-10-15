@@ -1,60 +1,108 @@
 # Contributors
 
-- Anabra
-- Arata Mizuki
 - Aaron Wolen
+- Agustín Martín Barbero
 - Albert Krewinkel
 - Alex Ivkin
+- Alex Toldaiev
 - Alex Vong
 - Alexander Kondratskiy
 - Alexander Krotov
 - Alexander Sulfrian
 - Alexander V Vershilov
+- Alexandre Franke
 - Alfred Wechselberger
+- Amogh Rathore
+- Anabra
+- Anders Waldenborg
 - Andreas Lööw
 - Andrew Dunning
+- Andy Morris
+- Aner Lucero
+- Anti-Distinctlyminty
 - Antoine Latter
+- Antonio Terceiro
 - Arata Mizuki
+- Arata Mizuki
+- Arfon Smith
+- Arfon Smith
 - Arlo O'Keeffe
 - Artyom Kazak
-- Agustín Martín Barbero
 - B. Scott Michel
 - Ben Firshman
 - Ben Gamari
+- Ben Steinberg
 - Beni Cherniavsky-Paskin
+- Benjamin Bray
 - Benoit Schweblin
+- Benson Muite
 - Bjorn Buckwalter
+- Blake Eryx
+- Bodigrim
 - Bradley Kuhn
 - Brent Yorgey
+- Brian Leung
 - Bryan O'Sullivan
 - Caleb McDaniel
+- Caleb Mclennan
 - Calvin Beck
 - Carlos Sosa
+- Carsten Allefeld
+- Cécile Chemin
+- Cédric Couralet
+- Charanjit Singh
 - Chris Black
 - Christian Conkle
+- Christian Despres
 - Christoffer Ackelman
 - Christoffer Sawicki
+- Christophe Dervieux
 - Clare Macrae
 - Clint Adams
 - Conal Elliott
+- Cormac Relf
 - Craig S. Bosma
+- Damien Clochard
 - Daniel Bergey
+- Daniel Maslowski
 - Daniel T. Staal
 - Daniele D'Orazio
 - David A Roberts
 - David Lazar
+- David Martschenko
 - David Röthlisberger
 - Denis Laxalde
+- Denis Maier
+- Derek Chen-Becker
+- Diego Balseiro
+- Dimitri Sabadie
+- Dmitry Pogodin
+- Dmitry Volodin
 - Douglas Calvert
+- Eigil Rischel
 - Emanuel Evans
+- Emerson Harkin
+- Emily Bourke
 - Emily Eisenberg
 - Eric Kow
+- Eric Schrijver
 - Eric Seidel
+- Erik Rask
+- Ethan Riley
 - Étienne Bersac
+- Even Brenden
+- Ezwal
+- Fabián Heredia Montiel
+- Félix Baylac-Jacqué
 - Felix Yan
+- Florian Beeres
 - Florian Eitel
+- Florian Klink
+- Florian Kohrt
+- Francesco Mazzoli
 - Francesco Occhipinti
 - François Gannaz
+- Frederik Elwert
 - Freiric Barral
 - Freirich Raabe
 - Frerich Raabe
@@ -68,44 +116,74 @@
 - Gwern Branwen
 - Hamish Mackenzie
 - Hans-Peter Deifel
+- Heiko Schlittermann
 - Henrik Tramberend
 - Henry de Valence
+- Herwig Stuetz
 - Hubert Plociniczak
+- Ian Max Andolina
+- Igor Khorlo
+- Igor Pashev
 - Ilya V. Portnov
+- Ivan Trubach
 - Ivo Clarysse
+- J. B. Rainsberger
 - J. Lewis Muir
 - Jaime Marquínez Ferrándiz
+- Jake Zimmerman
 - Jakob Voß
 - James Aspnes
 - Jamie F. Olson
 - Jan Larres
 - Jan Schulz
+- Jan Tojnar
+- Jannik Buhr
+- Jan-Otto Kröpke
+- Jared Lander
 - Jason Ronallo
 - Jeff Arnold
 - Jeff Runningen
 - Jens Getreu
 - Jens Petersen
+- Jesse Hathaway
+- Jérémy Bobbio
+- Jeroen de Haas
+- Jerry Sky
 - Jesse Rosenthal
 - Joe Hermaszewski
 - Joe Hillenbrand
+- John KetzerX
+- John Luke Bentley
 - John MacFarlane
 - John Muccigrosso
-- John Luke Bentley
+- Jonas Scholl
 - Jonas Smedegaard
 - Jonathan Daugherty
 - Jose Luis Duran
+- José de Mattos Neto
 - Josef Svenningsson
+- Joseph C. Sible
 - Julien Cretel
+- Julien Dutant
+- Juliette Fourcot
 - Juliusz Gonera
 - Justin Bogner
-- Jérémy Bobbio
+- Karl Pettersson
 - Keiichiro Shikano
 - Kelsey Hightower
 - Kolen Cheung
 - Konstantin Zudov
 - Kristof Bastiaensen
-- Herwig Stuetz
+- Krystof Beuermann
 - Lars-Dominik Braun
+- Laurent P. René de Cotret
+- Leif Metcalf
+- Leonard Rosenthol
+- Lila
+- Loïc Grobol
+- Lorenzo
+- Lucas Escot
+- Lucas Viana
 - Luke Plant
 - Marc Schreiber
 - Mark Szepieniec
@@ -114,7 +192,10 @@
 - Masayoshi Takahashi
 - Matej Kollar
 - Mathias Schenner
+- Mathias Walter
+- Mathieu Boespflug
 - Mathieu Duponchelle
+- Matthew Doty
 - Matthew Eddey
 - Matthew Pickering
 - Matthias C. M. Troffaes
@@ -124,33 +205,59 @@
 - Merijn Verstraaten
 - Michael Beaumont
 - Michael Chladek
+- Michael Hoffmann
+- Michael Peyton Jones
+- Michael Reed
 - Michael Snoyman
 - Michael Thompson
+- Mike Tzou
+- Milan Bracke
 - MinRK
 - Morton Fox
 - Nathan Gass
 - Neil Mayhew
 - Nick Bart
+- Nick Berendsen
+- Nick Fleisher
 - Nicolas Kaiser
+- Nikolai Korobeinikov
 - Nikolay Yakimov
+- Nils Carlson
+- Nixon Enraght-Moony
 - Nokome Bentley
+- OCzarnecki
+- Ole Martin Ruud
 - Oliver Matthews
 - Ophir Lifshitz
 - Or Neeman
 - OvidiusCicero
+- Owen McGrath
 - Pablo Rodríguez
+- Pascal Wagler
 - Paul Rivier
+- Paul Tilley
 - Paulo Tanimoto
+- Pete Ryland
+- Peter Fabinksi
 - Peter Wang
+- Philip Pesca
 - Philippe Ombredanne
 - Phillip Alday
 - Prayag Verma
 - Puneeth Chaganti
+- Quinn
 - Ralf Stephan
 - Raniere Silva
+- Raymond Ehlers
 - Recai Oktaş
+- Rowan Rodrik van der Molen
 - Roland Hieber
+- Roman Beránek
 - RyanGlScott
+- S.P.H
+- Salim B
+- Samuel Tardieu
+- Saumel Lemmenmeier
 - Sascha Wilde
 - Scott Morrison
 - Sebastian Talmon
@@ -158,47 +265,95 @@
 - Sergey Astanin
 - Shahbaz Youssefi
 - Shaun Attfield
+- Shim Myeongseob
+- Shin Sang-jae
 - Sidarth Kapur
 - Sidharth Kapur
 - Simon Hengel
+- Simon Schuster
 - Stefan Dresselhaus
 - Sumit Sahrawat
+- TEC
+- Tarik Graba
+- Tatiana Porras
 - Thenaesh Elango
 - Thomas Hodgson
 - Thomas Weißschuh
 - Tim Lin
+- Tim Wisotzki
 - Timm Albers
 - Timothy Humphries
 - Tiziano Müller
 - Todd Sifleet
 - Tom Leese
+- Tristan Stenner
+- Tristan de Cacqueray
+- Tuong Nguyen Manh
 - Uli Köhler
-- Václav Zeman
-- Viktor Kronvall
-- Vincent
+- Urs Liska
 - Václav Haisman
 - Václav Zeman
-- Wandmalfarbe
+- Vaibhav Sagar
+- Vanessa McHale
+- Vasily Alferov
+- Veratyr
+- Viktor Kronvall
+- Vincent
+- Vlad Hanciuta
 - Waldir Pimenta
+- Wandmalfarbe
 - Wikiwide
+- William Lupton
+- Winnie Hellmann
 - Xavier Olive
+- Yan Pashkovsky
+- Yoan Blanc
 - Yuchen Pei
+- Zihang Chen
+- a-vrma
+- andrebauer
+- argent0
+- badumont
+- blmage
 - bucklereed
 - bumper314
+- chinapedia
+- cholonam
 - csforste
 - d-dorazio
-- iandol
+- dbecher-ito
+- ebiim
+- favonia
+- hseg
 - infinity0x
+- jeongminkim-islab
+- kaizshang91
+- lux-lth
 - lwolfsonkin
+- mbrackeantidot
+- mt_caret
+- niszet
 - nkalvi
+- nuew
+- obcat
 - oltolm
-- quasicomputational
+- oquechy
 - qerub
+- quasicomputational
+- ricnorr
 - robabla
 - roblabla
 - rodja.trappe
 - rski
 - shreevatsa.public
 - takahashim
+- taotieren
+- tecosaur
 - tgkokk
+- the-solipsist
 - thsutton
+- timo-a
+- vijayphoenix
+- wiefling
+- willj-dev
+- wuffi

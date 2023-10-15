@@ -5,26 +5,29 @@ Source: https://hackage.haskell.org/package/pandoc/
  git://github.com/jgm/pandoc.git
 
 Files: *
-Copyright: 2006-2018, John MacFarlane <jgm@berkeley.edu>
-  2008-2018, Andrea Rossato <andrea.rossato@ing.unitn.it>
-  2008-2018, Peter Wang
-  2010-2015, Paul Rivier <paul.rivier@demotera.com>
-  2010-2015, Puneeth Chaganti <punchagan@gmail.com>
-  2011-2012, Sergey Astanin
-  2013-2015, Martin Fenner
-  2013, David Lazar <lazar6@illinois.edu>
-  2013, github.com/mb21
-  2014-2018, Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
-  2014-2018, Jesse Rosenthal <jrosenthal@jhu.edu>
-  2014-2018, Matthew Pickering <matthewtpickering@gmail.com>
-  2014, Alexander Sulfrian <alexander.sulfrian@fu-berlin.de>
-  2015, Martin Linnemann <theCodingMarlin@googlemail.com>
-  2016-2018, Alex Ivkin <alex@ivkin.net>
-  2017-2018, Alexander Krotov <ilabdsf@gmail.com>
-  2017-2018, Hamish Mackenzie
-  2017-2018, Yuchen Pei <me@ypei.me>
-  2017, Robin Lee Powell <robinleepowell@gmail.com>
-  2017, Sascha Wilde <wilde@sha-bang.de>
+Copyright:
+  2014-2022  Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+  2017-2019  Alex Ivkin <alex@ivkin.net>
+  2017-2020  Alexander Krotov <ilabdsf@gmail.com>
+  2014       Alexander Sulfrian <alexander.sulfrian@fu-berlin.de>
+  2008-2022  Andrea Rossato <andrea.rossato@ing.unitn.it>
+  2020       Christian Despres <christian.j.j.despres@gmail.com>
+  2013       David Lazar <lazar6@illinois.edu>
+  2013-2020  github.com/mb21
+  2017-2020  Hamish Mackenzie
+  2014-2020  Jesse Rosenthal <jrosenthal@jhu.edu>
+  2006-2022  John MacFarlane <jgm@berkeley.edu>
+  2013-2015  Martin Fenner
+  2015       Martin Linnemann <theCodingMarlin@googlemail.com>
+  2014-2022  Matthew Pickering <matthewtpickering@gmail.com>
+  2010-2022  Paul Rivier <paul.rivier@demotera.com>
+  2008-2022  Peter Wang
+  2010-2022  Puneeth Chaganti <punchagan@gmail.com>
+  2017       Robin Lee Powell <robinleepowell@gmail.com>
+  2017       Sascha Wilde <wilde@sha-bang.de>
+  2011-2012  Sergey Astanin
+  2018-2020  Yan Pashkovsky <yanp.bugz@gmail.com>
+  2017-2020  Yuchen Pei <me@ypei.me>
 License-Grant:
  This file is free software;
  you can redistribute it and/or modify it
@@ -33,59 +36,142 @@ License-Grant:
  either version 2 of the License, or (at your option) any later version.
 License: GPL-2+
 
-Files: data/templates/*
-Copyright: 2014-2018, John MacFarlane <jgm@berkeley.edu>
+Files:
+ data/templates/*
+Copyright:
+  2014-2020  John MacFarlane <jgm@berkeley.edu>
 License-Grant:
  Pandoc's templates (in `data/templates`) are dual-licensed
  GPL (v2 or higher, same as pandoc) and the BSD 3-clause license.
 License: BSD-3-clause~JohnMacFarlane or GPL-2+
 
 Files:
+ src/Text/Pandoc/XML/Light/*
+Copyright:
+  2007       Galois, Inc.
+  2021-2020  John MacFarlane <jgm@berkeley.edu>
+License-Grant:
+ GNU GPL, version 2 or above
+License: GPL-2+
+
+Files:
  data/pandoc.List.lua
  data/pandoc.lua
-Copyright: 2017-2018, Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+Copyright:
+  2017-2020  Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
 License: ISC
 
-Files: data/jats.csl
-Copyright: 2015, Martin Fenner
+Files:
+ data/jats.csl
+Copyright:
+  2015  Martin Fenner
 License-Grant:
  This work is licensed
  under a Creative Commons Attribution-ShareAlike 3.0 License.
 License: CC-BY-SA-3.0
 
-Files: src/Text/Pandoc/Readers/TikiWiki.hs
-Copyright: 2017, Robin Lee Powell <robinleepowell@gmail.com>
+Files:
+ src/Text/Pandoc/Readers/TikiWiki.hs
+Copyright:
+  2017  Robin Lee Powell <robinleepowell@gmail.com>
 License-Grant:
  License : GPLv2
 License: GPL-2
 
-Files: tests/movie.jpg
+Files:
+ windows/AdvancedWelcomeEulaDlg_Custom.wxs
+ windows/WixUI_Advanced_Custom.wxs
+Copyright:
+  2004  Outercurve Foundation
+License-Grant:
+ This software is released under Microsoft Reciprocal License (MS-RL).
+License: MS-RL
+
+Files:
+ src/Text/Pandoc/Process.hs
+Copyright:
+  2013-2020  John MacFarlane <jgm@berkeley.edu>
+  2004-2008  University of Glasgow
+License-Grant:
+ License : GNU GPL, version 2 or above
+License-Grant:
+ This function was adapted from @readProcessWithExitCode@
+ of module System.Process, package process-1.6.3.0.
+ The original code is BSD licensed
+ and © University of Glasgow 2004-2008.
+License: BSD-3-Clause~Glasgow and GPL-2+
+Comment:
+ The mentioned BSD license is a flavor of BSD-3-Clause
+ according to <https://github.com/haskell/process/blob/v1.6.3.0/LICENSE>.
+
+Files:
+ tests/movie.jpg
 Copyright: none (public domain)
 License: public-domain
  This art is in the public domain.
  Kevin Hughes, kevinh@eit.com, September 1995
 
-Files: data/dzslides/template.html
-Copyright: Paul Rouget
+Files:
+ data/dzslides/template.html
+Copyright:
+  Paul Rouget
 License: WTFPL-2
 
-Files: debian/*
-Copyright: 2006-2010, John MacFarlane <jgm@berkeley.edu>
-  2007-2008, Recai Oktaş <roktas@debian.org>
-  2008-2018, Jonas Smedegaard <dr@jones.dk>
+Files:
+ debian/*
+Copyright:
+  2006-2010             John MacFarlane <jgm@berkeley.edu>
+  2008-2020, 2022-2023  Jonas Smedegaard <dr@jones.dk>
+  2007-2008             Recai Oktaş <roktas@debian.org>
 License-Grant:
  This file is free software;
  you can redistribute it and/or modify it
  under the terms of the GNU General Public License
  as published by the Free Software Foundation;
- either version 3 of the License, or (at your option) any later version.
- .
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY;
- without even the implied warranty
- of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- See the GNU General Public License for more details.
+ either version 3 of the License,
+ or (at your option) any later version.
 License: GPL-3+
+Reference: debian/copyright
+
+License: BSD-3-Clause~Glasgow
+ Redistribution and use in source and binary forms,
+ with or without modification,
+ are permitted provided that the following conditions are met:
+  * Redistributions of source code must retain
+ the above copyright notice, this list of conditions
+ and the following disclaimer.
+  * Redistributions in binary form must reproduce
+ the above copyright notice, this list of conditions
+ and the following disclaimer
+ in the documentation and/or other materials
+ provided with the distribution.
+  * Neither name of the University
+ nor the names of its contributors
+ may be used to endorse or promote
+ products derived from this software
+ without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED
+ BY THE UNIVERSITY COURT OF THE UNIVERSITY OF GLASGOW
+ AND THE CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES,
+ INCLUDING, BUT NOT LIMITED TO,
+ THE IMPLIED WARRANTIES OF MERCHANTABILITY
+ AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED.
+ IN NO EVENT SHALL THE UNIVERSITY COURT OF THE UNIVERSITY OF GLASGOW
+ OR THE CONTRIBUTORS BE LIABLE
+ FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY,
+ OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO,
+ PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS;
+ OR BUSINESS INTERRUPTION)
+ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+ WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 License: BSD-3-clause~JohnMacFarlane
  Redistribution and use in source and binary forms,
@@ -519,13 +605,13 @@ License: CC-BY-SA-3.0
     of any rights under applicable law.
 
 License: GPL-2
-License-Reference: /usr/share/common-licenses/GPL-2
+Reference: /usr/share/common-licenses/GPL-2
 
 License: GPL-2+
-License-Reference: /usr/share/common-licenses/GPL-2
+Reference: /usr/share/common-licenses/GPL-2
 
 License: GPL-3+
-License-Reference: /usr/share/common-licenses/GPL-3
+Reference: /usr/share/common-licenses/GPL-3
 
 License: ISC
  Permission to use, copy, modify, and/or distribute this software
@@ -542,6 +628,93 @@ License: ISC
  WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
  ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
  OF THIS SOFTWARE.
+
+License: MS-RL
+ Microsoft Reciprocal License (Ms-RL)
+ .
+ This license governs use of the accompanying software.
+ If you use the software, you accept this license.
+ If you do not accept the license, do not use the software.
+ .
+ 1. Definitions
+ .
+ The terms "reproduce," "reproduction," "derivative works," and "distribution"
+ have the same meaning here as under U.S. copyright law.
+ .
+ A "contribution" is the original software,
+ or any additions or changes to the software.
+ .
+ A "contributor" is any person
+ that distributes its contribution under this license.
+ .
+ "Licensed patents" are a contributor's patent claims
+ that read directly on its contribution.
+ .
+ 2. Grant of Rights
+ .
+ (A) Copyright Grant-
+ Subject to the terms of this license,
+ including the license conditions and limitations in section 3,
+ each contributor grants you a non-exclusive, worldwide,
+ royalty-free copyright license
+ to reproduce its contribution,
+ prepare derivative works of its contribution,
+ and distribute its contribution
+ or any derivative works that you create.
+ .
+ (B) Patent Grant-
+ Subject to the terms of this license,
+ including the license conditions and limitations in section 3,
+ each contributor grants you a non-exclusive, worldwide,
+ royalty-free license under its licensed patents
+ to make, have made, use, sell, offer for sale, import,
+ and/or otherwise dispose of its contribution in the software
+ or derivative works of the contribution in the software.
+ .
+ 3. Conditions and Limitations
+ .
+ (A) Reciprocal Grants-
+ For any file you distribute that contains code from the software
+ (in source code or binary format),
+ you must provide recipients the source code to that file
+ along with a copy of this license,
+ which license will govern that file.
+ You may license other files
+ that are entirely your own work
+ and do not contain code from the software
+ under any terms you choose.
+ .
+ (B) No Trademark License-
+ This license does not grant you rights
+ to use any contributors' name, logo, or trademarks.
+ .
+ (C) If you bring a patent claim against any contributor
+ over patents that you claim are infringed by the software,
+ your patent license from such contributor
+ to the software ends automatically.
+ .
+ (D) If you distribute any portion of the software,
+ you must retain all copyright, patent, trademark,
+ and attribution notices
+ that are present in the software.
+ .
+ (E) If you distribute any portion of the software
+ in source code form,
+ you may do so only under this license
+ by including a complete copy of this license with your distribution.
+ If you distribute any portion of the software
+ in compiled or object code form,
+ you may only do so under a license that complies with this license.
+ .
+ (F) The software is licensed "as-is."
+ You bear the risk of using it.
+ The contributors give no express warranties, guarantees, or conditions.
+ You may have additional consumer rights under your local laws
+ which this license cannot change.
+ To the extent permitted under your local laws,
+ the contributors exclude the implied warranties
+ of merchantability, fitness for a particular purpose
+ and non-infringement.
 
 License: WTFPL-2
  DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE

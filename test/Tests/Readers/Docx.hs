@@ -1,7 +1,17 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Docx
+   Copyright   : © 2017-2020 Jesse Rosenthal, John MacFarlane
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Jesse Rosenthal <jrosenthal@jhu.edu>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the word docx reader.
+-}
 module Tests.Readers.Docx (tests) where
 
-import Prelude
 import Codec.Archive.Zip
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
@@ -14,14 +24,14 @@ import Test.Tasty.HUnit
 import Tests.Helpers
 import Text.Pandoc
 import qualified Text.Pandoc.Class as P
-import Text.Pandoc.MediaBag (MediaBag, lookupMedia, mediaDirectory)
+import qualified Text.Pandoc.MediaBag as MB
 import Text.Pandoc.UTF8 as UTF8
 
 -- We define a wrapper around pandoc that doesn't normalize in the
 -- tests. Since we do our own normalization, we want to make sure
 -- we're doing it right.
 
-data NoNormPandoc = NoNormPandoc {unNoNorm :: Pandoc}
+newtype NoNormPandoc = NoNormPandoc {unNoNorm :: Pandoc}
                  deriving Show
 
 noNorm :: Pandoc -> NoNormPandoc
@@ -35,7 +45,7 @@ instance ToString NoNormPandoc where
    where s = case d of
                   NoNormPandoc (Pandoc (Meta m) _)
                     | M.null m  -> Nothing
-                    | otherwise -> Just "" -- need this to get meta output
+                    | otherwise -> Just mempty -- need this to get meta output
 
 instance ToPandoc NoNormPandoc where
   toPandoc = unNoNorm
@@ -68,7 +78,7 @@ testForWarningsWithOptsIO opts name docxFile expected = do
   df <- B.readFile docxFile
   logs <-  runIOorExplode $ setVerbosity ERROR >> readDocx opts df >> P.getLog
   let warns = [m | DocxParserWarning m <- logs]
-  return $ test id name (unlines warns, unlines expected)
+  return $ test id name (T.unlines warns, unlines expected)
 
 testForWarningsWithOpts :: ReaderOptions -> String -> FilePath -> [String] -> TestTree
 testForWarningsWithOpts opts name docxFile expected =
@@ -78,15 +88,14 @@ testForWarningsWithOpts opts name docxFile expected =
 -- testForWarnings = testForWarningsWithOpts defopts
 
 getMedia :: FilePath -> FilePath -> IO (Maybe B.ByteString)
-getMedia archivePath mediaPath = do
-  zf <- B.readFile archivePath >>= return . toArchive
-  return $ findEntryByPath ("word/" ++ mediaPath) zf >>= (Just . fromEntry)
+getMedia archivePath mediaPath = fmap fromEntry . findEntryByPath
+    ("word/" ++ mediaPath) . toArchive <$> B.readFile archivePath
 
-compareMediaPathIO :: FilePath -> MediaBag -> FilePath -> IO Bool
+compareMediaPathIO :: FilePath -> MB.MediaBag -> FilePath -> IO Bool
 compareMediaPathIO mediaPath mediaBag docxPath = do
   docxMedia <- getMedia docxPath mediaPath
-  let mbBS   = case lookupMedia mediaPath mediaBag of
-                 Just (_, bs) -> bs
+  let mbBS   = case MB.lookupMedia mediaPath mediaBag of
+                 Just item    -> MB.mediaContents item
                  Nothing      -> error ("couldn't find " ++
                                         mediaPath ++
                                         " in media bag")
@@ -101,7 +110,7 @@ compareMediaBagIO docxFile = do
     mb <- runIOorExplode $ readDocx defopts df >> P.getMediaBag
     bools <- mapM
              (\(fp, _, _) -> compareMediaPathIO fp mb docxFile)
-             (mediaDirectory mb)
+             (MB.mediaDirectory mb)
     return $ and bools
 
 testMediaBagIO :: String -> FilePath -> IO TestTree
@@ -115,7 +124,13 @@ testMediaBag :: String -> FilePath -> TestTree
 testMediaBag name docxFile = unsafePerformIO $ testMediaBagIO name docxFile
 
 tests :: [TestTree]
-tests = [ testGroup "inlines"
+tests = [ testGroup "document"
+          [ testCompare
+            "allow different document.xml file as defined in _rels/.rels"
+            "docx/alternate_document_path.docx"
+            "docx/alternate_document_path.native"
+          ]
+        , testGroup "inlines"
           [ testCompare
             "font formatting"
             "docx/inline_formatting.docx"
@@ -133,6 +148,18 @@ tests = [ testGroup "inlines"
             "docx/instrText_hyperlink.docx"
             "docx/instrText_hyperlink.native"
           , testCompare
+            "nested fields with <w:instrText> tag"
+            "docx/nested_instrText.docx"
+            "docx/nested_instrText.native"
+          , testCompare
+            "empty fields with <w:instrText> tag"
+            "docx/empty_field.docx"
+            "docx/empty_field.native"
+          , testCompare
+            "pageref hyperlinks in <w:instrText> tag"
+            "docx/pageref.docx"
+            "docx/pageref.native"
+          , testCompare
             "inline image"
             "docx/image.docx"
             "docx/image_no_embed.native"
@@ -140,6 +167,10 @@ tests = [ testGroup "inlines"
             "VML image"
             "docx/image_vml.docx"
             "docx/image_vml.native"
+          , testCompare
+            "VML image as object"
+            "docx/image_vml_as_object.docx"
+            "docx/image_vml_as_object.native"
           , testCompare
             "inline image in links"
             "docx/inline_images.docx"
@@ -169,6 +200,10 @@ tests = [ testGroup "inlines"
             "docx/trailing_spaces_in_formatting.docx"
             "docx/trailing_spaces_in_formatting.native"
           , testCompare
+            "remove trailing spaces from last inline"
+            "docx/trim_last_inline.docx"
+            "docx/trim_last_inline.native"
+          , testCompare
             "inline code (with VerbatimChar style)"
             "docx/inline_code.docx"
             "docx/inline_code.native"
@@ -180,6 +215,10 @@ tests = [ testGroup "inlines"
             "inlines inside of Structured Document Tags"
             "docx/sdt_elements.docx"
             "docx/sdt_elements.native"
+          , testCompare
+            "Structured Document Tags in footnotes"
+            "docx/sdt_in_footnote.docx"
+            "docx/sdt_in_footnote.native"
           , testCompare
             "nested Structured Document Tags"
             "docx/nested_sdt.docx"
@@ -231,6 +270,14 @@ tests = [ testGroup "inlines"
             "docx/lists.docx"
             "docx/lists.native"
           , testCompare
+            "compact lists"
+            "docx/lists-compact.docx"
+            "docx/lists-compact.native"
+          , testCompare
+            "lists with level overrides"
+            "docx/lists_level_override.docx"
+            "docx/lists_level_override.native"
+          , testCompare
             "lists continuing after interruption"
             "docx/lists_continuing.docx"
             "docx/lists_continuing.native"
@@ -238,6 +285,10 @@ tests = [ testGroup "inlines"
             "lists restarting after interruption"
             "docx/lists_restarting.docx"
             "docx/lists_restarting.native"
+          , testCompare
+            "sublists reset numbering to 1"
+            "docx/lists_sublist_reset.docx"
+            "docx/lists_sublist_reset.native"
           , testCompare
             "definition lists"
             "docx/definition_list.docx"
@@ -267,6 +318,10 @@ tests = [ testGroup "inlines"
             "docx/block_quotes.docx"
             "docx/block_quotes_parse_indent.native"
           , testCompare
+            "blockquotes (parsing indent relative to the indent of the parent style as blockquote)"
+            "docx/relative_indentation_blockquotes.docx"
+            "docx/relative_indentation_blockquotes.native"
+          , testCompare
             "hanging indents"
             "docx/hanging_indent.docx"
             "docx/hanging_indent.native"
@@ -279,13 +334,29 @@ tests = [ testGroup "inlines"
             "docx/table_with_list_cell.docx"
             "docx/table_with_list_cell.native"
           , testCompare
+            "a table with a header which contains rowspans greater than 1"
+            "docx/table_header_rowspan.docx"
+            "docx/table_header_rowspan.native"
+          , testCompare
             "tables with one row"
             "docx/table_one_row.docx"
             "docx/table_one_row.native"
           , testCompare
+            "tables with just one row, which is a header"
+            "docx/table_one_header_row.docx"
+            "docx/table_one_header_row.native"
+          , testCompare
             "tables with variable width"
             "docx/table_variable_width.docx"
             "docx/table_variable_width.native"
+          , testCompare
+            "tables with captions which contain a Table field"
+            "docx/table_captions_with_field.docx"
+            "docx/table_captions_with_field.native"
+          , testCompare
+            "tables with captions which don't contain a Table field"
+            "docx/table_captions_no_field.docx"
+            "docx/table_captions_no_field.native"
           , testCompare
             "code block"
             "docx/codeblock.docx"
@@ -368,6 +439,10 @@ tests = [ testGroup "inlines"
             "paragraph insertion/deletion (all)"
             "docx/paragraph_insertion_deletion.docx"
             "docx/paragraph_insertion_deletion_all.native"
+          , testCompareWithOpts def{readerTrackChanges=AllChanges}
+            "paragraph insertion/deletion (all)"
+            "docx/track_changes_scrubbed_metadata.docx"
+            "docx/track_changes_scrubbed_metadata.native"
           , testForWarningsWithOpts def{readerTrackChanges=AcceptChanges}
             "comment warnings (accept -- no warnings)"
             "docx/comments_warning.docx"
@@ -396,6 +471,11 @@ tests = [ testGroup "inlines"
             "custom styles (`+styles`) enabled"
             "docx/custom-style-reference.docx"
             "docx/custom-style-with-styles.native"
+          , testCompareWithOpts
+            def{readerExtensions=extensionsFromList [Ext_styles]}
+            "custom styles (`+styles`): Compact style is removed from output"
+            "docx/compact-style-removal.docx"
+            "docx/compact-style-removal.native"
           ]
         , testGroup "metadata"
           [ testCompareWithOpts def{readerStandalone=True}
@@ -407,5 +487,4 @@ tests = [ testGroup "inlines"
             "docx/metadata_after_normal.docx"
             "docx/metadata_after_normal.native"
           ]
-
         ]

@@ -1,22 +1,4 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2015 Martin Linnemann <theCodingMarlin@googlemail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Reader.Odt.Namespaces
    Copyright   : Copyright (C) 2015 Martin Linnemann
@@ -32,11 +14,10 @@ Namespaces used in odt files.
 module Text.Pandoc.Readers.Odt.Namespaces ( Namespace (..)
                                           ) where
 
-import Prelude
-import Data.List (isPrefixOf)
 import qualified Data.Map as M (empty, insert)
 import Data.Maybe (fromMaybe, listToMaybe)
-
+import Data.Text (Text)
+import qualified Data.Text as T
 import Text.Pandoc.Readers.Odt.Generic.Namespaces
 
 
@@ -50,7 +31,7 @@ instance NameSpaceID Namespace where
 
 
 findID :: NameSpaceIRI -> Maybe Namespace
-findID iri = listToMaybe [nsID | (iri',nsID) <- nsIDs, iri' `isPrefixOf` iri]
+findID iri = listToMaybe [nsID | (iri',nsID) <- nsIDs, iri' `T.isPrefixOf` iri]
 
 nsIDmap :: NameSpaceIRIs Namespace
 nsIDmap = foldr (uncurry $ flip M.insert) M.empty nsIDs
@@ -74,12 +55,12 @@ data Namespace = -- Open Document core
                  -- Core XML (basically only for the 'id'-attribute)
                | NsXML
                  -- Fallback
-               | NsOther String
+               | NsOther Text
   deriving ( Eq, Ord, Show )
 
 -- | Not the actual iri's, but large prefixes of them - this way there are
 -- less versioning problems and the like.
-nsIDs :: [(String,Namespace)]
+nsIDs :: [(Text, Namespace)]
 nsIDs = [
   ("urn:oasis:names:tc:opendocument:xmlns:animation"        , NsAnim         ),
   ("urn:oasis:names:tc:opendocument:xmlns:chart"            , NsChart        ),

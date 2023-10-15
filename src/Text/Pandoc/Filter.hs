@@ -1,26 +1,9 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2006-2017 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-{-# LANGUAGE TemplateHaskell     #-}
-
+{-# LANGUAGE CPP               #-}
+{-# LANGUAGE DeriveGeneric     #-}
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Filter
-   Copyright   : Copyright (C) 2006-2017 John MacFarlane
+   Copyright   : Copyright (C) 2006-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley@edu>
@@ -31,32 +14,91 @@ Programmatically modifications of pandoc documents.
 -}
 module Text.Pandoc.Filter
   ( Filter (..)
+  , Environment (..)
   , applyFilters
   ) where
 
-import Prelude
-import Data.Aeson (defaultOptions)
-import Data.Aeson.TH (deriveJSON)
-import Data.Foldable (foldrM)
-import Text.Pandoc.Class (PandocIO)
+import System.CPUTime (getCPUTime)
+import Data.Aeson
+import GHC.Generics (Generic)
+import Text.Pandoc.Class (report, getVerbosity, PandocMonad)
 import Text.Pandoc.Definition (Pandoc)
-import Text.Pandoc.Options (ReaderOptions)
+import Text.Pandoc.Filter.Environment (Environment (..))
+import Text.Pandoc.Logging
+import Text.Pandoc.Citeproc (processCitations)
 import qualified Text.Pandoc.Filter.JSON as JSONFilter
 import qualified Text.Pandoc.Filter.Lua as LuaFilter
+import qualified Text.Pandoc.Filter.Path as Path
+import qualified Data.Text as T
+import System.FilePath (takeExtension)
+import Control.Applicative ((<|>))
+import Control.Monad.Trans (MonadIO (liftIO))
+import Control.Monad (foldM, when)
 
+-- | Type of filter and path to filter file.
 data Filter = LuaFilter FilePath
             | JSONFilter FilePath
-            deriving (Show)
+            | CiteprocFilter -- built-in citeproc
+            deriving (Show, Generic)
 
-applyFilters :: ReaderOptions
+instance FromJSON Filter where
+ parseJSON node =
+  (withObject "Filter" $ \m -> do
+    ty <- m .: "type"
+    fp <- m .:? "path"
+    let missingPath = fail $ "Expected 'path' for filter of type " ++ show ty
+    let filterWithPath constr = maybe missingPath (return . constr . T.unpack)
+    case ty of
+      "citeproc" -> return CiteprocFilter
+      "lua"  -> filterWithPath LuaFilter fp
+      "json" -> filterWithPath JSONFilter fp
+      _      -> fail $ "Unknown filter type " ++ show (ty :: T.Text)) node
+  <|>
+  (withText "Filter" $ \t -> do
+    let fp = T.unpack t
+    if fp == "citeproc"
+       then return CiteprocFilter
+       else return $
+         case takeExtension fp of
+           ".lua"  -> LuaFilter fp
+           _       -> JSONFilter fp) node
+
+instance ToJSON Filter where
+ toJSON CiteprocFilter = object [ "type" .= String "citeproc" ]
+ toJSON (LuaFilter fp) = object [ "type" .= String "lua",
+                                  "path" .= String (T.pack fp) ]
+ toJSON (JSONFilter fp) = object [ "type" .= String "json",
+                                   "path" .= String (T.pack fp) ]
+
+-- | Modify the given document using a filter.
+applyFilters :: (PandocMonad m, MonadIO m)
+             => Environment
              -> [Filter]
              -> [String]
              -> Pandoc
-             -> PandocIO Pandoc
-applyFilters ropts filters args d =
-  foldrM ($) d $ map applyFilter filters
+             -> m Pandoc
+applyFilters fenv filters args d = do
+  expandedFilters <- mapM expandFilterPath filters
+  foldM applyFilter d expandedFilters
  where
-  applyFilter (JSONFilter f) = JSONFilter.apply ropts args f
-  applyFilter (LuaFilter f)  = LuaFilter.apply ropts args f
+  applyFilter doc (JSONFilter f) =
+    withMessages f $ JSONFilter.apply fenv args f doc
+  applyFilter doc (LuaFilter f)  =
+    withMessages f $ LuaFilter.apply fenv args f doc
+  applyFilter doc CiteprocFilter =
+    processCitations doc
+  withMessages f action = do
+    verbosity <- getVerbosity
+    when (verbosity == INFO) $ report $ RunningFilter f
+    starttime <- liftIO getCPUTime
+    res <- action
+    endtime <- liftIO getCPUTime
+    when (verbosity == INFO) $ report $ FilterCompleted f $ toMilliseconds $ endtime - starttime
+    return res
+  toMilliseconds picoseconds = picoseconds `div` 1000000000
 
-$(deriveJSON defaultOptions ''Filter)
+-- | Expand paths of filters, searching the data directory.
+expandFilterPath :: (PandocMonad m, MonadIO m) => Filter -> m Filter
+expandFilterPath (LuaFilter fp) = LuaFilter <$> Path.expandFilterPath fp
+expandFilterPath (JSONFilter fp) = JSONFilter <$> Path.expandFilterPath fp
+expandFilterPath CiteprocFilter = return CiteprocFilter

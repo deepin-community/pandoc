@@ -1,8 +1,7 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Tests.Writers.RST (tests) where
 
-import Prelude
+import Control.Monad.Identity
 import Test.Tasty
 import Test.Tasty.HUnit
 import Tests.Helpers
@@ -10,11 +9,24 @@ import Text.Pandoc
 import Text.Pandoc.Arbitrary ()
 import Text.Pandoc.Builder
 import Text.Pandoc.Writers.RST
+import qualified Data.Text as T
 
 infix 4 =:
 (=:) :: (ToString a, ToPandoc a)
      => String -> (a, String) -> TestTree
 (=:) = test (purely (writeRST def . toPandoc))
+
+testTemplate :: (ToString a, ToString c, ToPandoc a) =>
+                String -> String -> (a, c) -> TestTree
+testTemplate t = case runIdentity (compileTemplate [] (T.pack t)) of
+    Left e -> error $ "Could not compile RST template: " ++ e
+    Right templ -> test (purely (writeRST def{ writerTemplate = Just templ }) . toPandoc)
+
+bodyTemplate :: Template T.Text
+bodyTemplate = case runIdentity (compileTemplate [] "$body$\n") of
+                    Left e      -> error $
+                      "Could not compile RST bodyTemplate" ++ e
+                    Right templ -> templ
 
 tests :: [TestTree]
 tests = [ testGroup "rubrics"
@@ -91,6 +103,9 @@ tests = [ testGroup "rubrics"
           , "keeps quotes" =:
             strong (str "f" <> doubleQuoted (str "d") <> str "l") =?>
             "**f“d”l**"
+          , "backslash inserted between str and code" =:
+            str "/api?query=" <> code "foo" =?>
+            "/api?query=\\ ``foo``"
           ]
         , testGroup "headings"
           [ "normal heading" =:
@@ -99,7 +114,8 @@ tests = [ testGroup "rubrics"
               [ "foo"
               , "==="]
           -- note: heading normalization is only done in standalone mode
-          , test (purely (writeRST def{ writerTemplate = Just "$body$\n" }) . toPandoc)
+          , test (purely (writeRST def{ writerTemplate = Just bodyTemplate })
+                       . toPandoc)
             "heading levels" $
               header 1 (text "Header 1") <>
               header 3 (text "Header 2") <>
@@ -129,7 +145,7 @@ tests = [ testGroup "rubrics"
               , ""
               , "Header 2"
               , "--------"]
-          , test (purely (writeRST def{ writerTemplate = Just "$body$\n" }) . toPandoc)
+          , test (purely (writeRST def{ writerTemplate = Just bodyTemplate }) . toPandoc)
             "minimal heading levels" $
               header 2 (text "Header 1") <>
               header 3 (text "Header 2") <>
@@ -156,4 +172,7 @@ tests = [ testGroup "rubrics"
               , "Header 2"
               , "--------"]
           ]
+        , testTemplate "$subtitle$\n" "subtitle" $
+          setMeta "subtitle" ("subtitle" :: Inlines) (doc $ plain "") =?>
+          ("subtitle" :: String)
         ]

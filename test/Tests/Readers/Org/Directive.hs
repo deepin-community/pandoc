@@ -1,8 +1,17 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Directive
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Tests parsing of org directives (like @#+OPTIONS@).
+-}
 module Tests.Readers.Org.Directive (tests) where
 
-import Prelude
 import Data.Time (UTCTime (UTCTime), secondsToDiffTime)
 import Data.Time.Calendar (Day (ModifiedJulianDay))
 import Test.Tasty (TestTree, testGroup)
@@ -19,7 +28,7 @@ testWithFiles :: (ToString c)
               -> (T.Text, c)    -- ^ (input, expected value)
               -> TestTree
 testWithFiles fileDefs = test (orgWithFiles fileDefs)
-  where
+
 orgWithFiles :: [(FilePath, BS.ByteString)] -> T.Text -> Pandoc
 orgWithFiles fileDefs input =
   let readOrg' = readOrg def{ readerExtensions = getDefaultExtensions "org" }
@@ -139,6 +148,28 @@ tests =
                   ] =?>
         Pandoc nullMeta mempty
 
+    , "disable MathML-like entities" =:
+        T.unlines [ "#+OPTIONS: e:nil"
+                  , "Icelandic letter: \\thorn"
+                  ] =?>
+        para "Icelandic letter: \\thorn"
+
+    , testGroup "Option f"
+      [ "disable inline footnotes" =:
+        T.unlines [ "#+OPTIONS: f:nil"
+                  , "Funny![fn:funny:or not]"
+                  ] =?>
+        para "Funny!"
+
+      , "disable reference footnotes" =:
+        T.unlines [ "#+OPTIONS: f:nil"
+                  , "Burn everything[fn:1] down!"
+                  , ""
+                  , "[fn:2] Not quite everything."
+                  ] =?>
+        para "Burn everything down!"
+      ]
+
     , "disable inclusion of todo keywords" =:
         T.unlines [ "#+OPTIONS: todo:nil"
                   , "** DONE todo export"
@@ -150,6 +181,128 @@ tests =
                   , "* Headline :hello:world:"
                   ] =?>
         headerWith ("headline", [], mempty) 1 "Headline"
+
+    , testGroup "LaTeX"
+      [ testGroup "Include LaTeX fragments"
+        [ "Inline command" =:
+          T.unlines [ "#+OPTIONS: tex:t"
+                    , "Hello \\emph{Name}"
+                    ] =?>
+          para ("Hello" <> space <> emph "Name")
+
+        , "Alpha" =:
+          T.unlines [ "#+OPTIONS: tex:t"
+                    , "\\alpha"
+                    ] =?>
+          para "α"
+
+        , "equation environment" =:
+          T.unlines [ "#+OPTIONS: tex:t"
+                    , "\\begin{equation}"
+                    , "f(x) = x^2"
+                    , "\\end{equation}"
+                    ] =?>
+          rawBlock "latex" (T.unlines [ "\\begin{equation}"
+                                      , "f(x) = x^2"
+                                      , "\\end{equation}"
+                                      ])
+        ]
+
+      , testGroup "Ignore LaTeX fragments"
+        [ "Inline command" =:
+          T.unlines [ "#+OPTIONS: tex:nil"
+                    , "Hello \\emph{Emphasised}"
+                    ] =?>
+          para "Hello"
+
+        , "MathML symbol (alpha)" =:
+          T.unlines [ "#+OPTIONS: tex:nil"
+                    , "\\alpha"
+                    ] =?>
+          para "α"
+
+        , "equation environment" =:
+          T.unlines [ "#+OPTIONS: tex:nil"
+                    , "\\begin{equation}"
+                    , "f(x) = x^2"
+                    , "\\end{equation}"
+                    ] =?>
+          (mempty :: Blocks)
+        ]
+
+      , testGroup "Verbatim LaTeX"
+        [ "Inline command" =:
+          T.unlines [ "#+OPTIONS: tex:verbatim"
+                    , "Hello \\emph{Emphasised}"
+                    ] =?>
+          para "Hello \\emph{Emphasised}"
+
+        , "MathML symbol (alpha)" =:
+          T.unlines [ "#+OPTIONS: tex:verbatim"
+                    , "\\alpha"
+                    ] =?>
+          para "α"
+
+        , "equation environment" =:
+          T.unlines [ "#+OPTIONS: tex:verbatim"
+                    , "\\begin{equation}"
+                    , "f(x) = x^2"
+                    , "\\end{equation}"
+                    ] =?>
+          para (str "\\begin{equation}" <> softbreak <>
+                str "f(x) = x^2" <> softbreak <>
+                str "\\end{equation}")
+        ]
+      ]
+
+    , testGroup "planning information"
+      [ "include planning info after headlines" =:
+        T.unlines [ "#+OPTIONS: p:t"
+                  , "* important"
+                  , "  DEADLINE: <2018-10-01 Mon> SCHEDULED: <2018-09-15 Sat>"
+                  ] =?>
+        mconcat [ headerWith ("important", mempty, mempty) 1 "important"
+                , plain $ strong "DEADLINE:"
+                       <> space
+                       <> emph (str "<2018-10-01 Mon>")
+                       <> space
+                       <> strong "SCHEDULED:"
+                       <> space
+                       <> emph (str "<2018-09-15 Sat>")
+                ]
+
+      , "empty planning info is not included" =:
+        T.unlines [ "#+OPTIONS: p:t"
+                  , "* Wichtig"
+                  ] =?>
+        headerWith ("wichtig", mempty, mempty) 1 "Wichtig"
+      ]
+
+    , testGroup "Option |"
+      [ "disable export of tables" =:
+        T.unlines [ "#+OPTIONS: |:nil"
+                  , "| chair |"
+                  ] =?>
+        (mempty :: Blocks)
+      ]
+
+    , testGroup "unknown options"
+      [ "unknown options are ignored" =:
+          T.unlines [ "#+OPTIONS: does-not-exist:t "] =?>
+          (mempty :: Pandoc)
+
+      , "highlighting after unknown option" =:
+          T.unlines [ "#+OPTIONS: nope"
+                    , "/yup/"
+                    ] =?>
+          para (emph "yup")
+
+      , "unknown option interleaved with known" =:
+          T.unlines [ "#+OPTIONS: tags:nil foo:bar todo:nil"
+                    , "* DONE ignore things  :easy:"
+                    ] =?>
+          headerWith ("ignore-things", [], mempty) 1 "ignore things"
+      ]
     ]
 
   , testGroup "Include"
@@ -169,9 +322,14 @@ tests =
        headerWith ("level3", [], []) 3 "Level3")
 
     , testWithFiles [("./level3.org", "*** Level3\n\n")]
-      "Minlevel shifts level"
+      "Minlevel shifts level leftward"
       (T.unlines [ "#+include: \"level3.org\" :minlevel 1" ] =?>
        headerWith ("level3", [], []) 1 "Level3")
+
+    , testWithFiles [("./level1.org", "* Level1\n\n")]
+      "Minlevel shifts level rightward"
+      (T.unlines [ "#+include: \"level1.org\" :minlevel 3" ] =?>
+       headerWith ("level1", [], []) 3 "Level1")
 
     , testWithFiles [("./src.hs", "putStrLn outString\n")]
       "Include file as source code snippet"

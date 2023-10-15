@@ -1,25 +1,7 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2014-2018 Jesse Rosenthal <jrosenthal@jhu.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Readers.Docx.Fields
-   Copyright   : Copyright (C) 2014-2018 Jesse Rosenthal
+   Copyright   : Copyright (C) 2014-2020 Jesse Rosenthal
    License     : GNU GPL, version 2 or above
 
    Maintainer  : Jesse Rosenthal <jrosenthal@jhu.edu>
@@ -33,50 +15,80 @@ module Text.Pandoc.Readers.Docx.Fields ( FieldInfo(..)
                                        , parseFieldInfo
                                        ) where
 
-import Prelude
+import Data.Functor (($>), void)
+import qualified Data.Text as T
 import Text.Parsec
-import Text.Parsec.String (Parser)
+import Text.Parsec.Text (Parser)
 
-type URL = String
+type URL = T.Text
+type Anchor = T.Text
 
 data FieldInfo = HyperlinkField URL
+                -- The boolean indicates whether the field is a hyperlink.
+               | PagerefField Anchor Bool
+               | ZoteroItem T.Text
+               | ZoteroBibliography
                | UnknownField
                deriving (Show)
 
-parseFieldInfo :: String -> Either ParseError FieldInfo
+parseFieldInfo :: T.Text -> Either ParseError FieldInfo
 parseFieldInfo = parse fieldInfo ""
 
 fieldInfo :: Parser FieldInfo
 fieldInfo =
   try (HyperlinkField <$> hyperlink)
   <|>
+  try ((uncurry PagerefField) <$> pageref) 
+  <|>
+  try addIn
+  <|>
   return UnknownField
 
-escapedQuote :: Parser String
-escapedQuote = string "\\\""
+addIn :: Parser FieldInfo
+addIn = do
+  spaces
+  string "ADDIN"
+  spaces
+  try zoteroItem <|> zoteroBibliography
 
-inQuotes :: Parser String
+zoteroItem :: Parser FieldInfo
+zoteroItem = do
+  string "ZOTERO_ITEM"
+  spaces
+  string "CSL_CITATION"
+  spaces
+  ZoteroItem <$> getInput
+
+zoteroBibliography :: Parser FieldInfo
+zoteroBibliography = do
+  string "ZOTERO_BIBL"
+  return ZoteroBibliography
+
+escapedQuote :: Parser T.Text
+escapedQuote = string "\\\"" $> "\\\""
+
+inQuotes :: Parser T.Text
 inQuotes =
-  (try escapedQuote) <|> (anyChar >>= (\c -> return [c]))
+  try escapedQuote <|> (T.singleton <$> anyChar)
 
-quotedString :: Parser String
+quotedString :: Parser T.Text
 quotedString = do
   char '"'
-  concat <$> manyTill inQuotes (try (char '"'))
+  T.concat <$> manyTill inQuotes (try (char '"'))
 
-unquotedString :: Parser String
-unquotedString = manyTill anyChar (try $ lookAhead space *> return () <|> eof)
+unquotedString :: Parser T.Text
+unquotedString = T.pack <$> manyTill anyChar (try $ void (lookAhead space) <|> eof)
 
-fieldArgument :: Parser String
+fieldArgument :: Parser T.Text
 fieldArgument = quotedString <|> unquotedString
 
 -- there are other switches, but this is the only one I've seen in the wild so far, so it's the first one I'll implement. See §17.16.5.25
-hyperlinkSwitch :: Parser (String, String)
+hyperlinkSwitch :: Parser (T.Text, T.Text)
 hyperlinkSwitch = do
   sw <- string "\\l"
   spaces
   farg <- fieldArgument
-  return (sw, farg)
+  return (T.pack sw, farg)
 
 hyperlink :: Parser URL
 hyperlink = do
@@ -86,6 +98,26 @@ hyperlink = do
   farg <- fieldArgument
   switches <- spaces *> many hyperlinkSwitch
   let url = case switches of
-              ("\\l", s) : _ -> farg ++ ('#': s)
+              ("\\l", s) : _ -> farg <> "#" <> s
               _              -> farg
   return url
+
+-- See §17.16.5.45
+pagerefSwitch :: Parser (T.Text, T.Text)
+pagerefSwitch = do
+  sw <- string "\\h"
+  spaces
+  farg <- fieldArgument
+  return (T.pack sw, farg)
+
+pageref :: Parser (Anchor, Bool)
+pageref = do
+  many space
+  string "PAGEREF"
+  spaces
+  farg <- fieldArgument
+  switches <- spaces *> many pagerefSwitch
+  let isLink = case switches of
+              ("\\h", _) : _ -> True 
+              _              -> False
+  return (farg, isLink)

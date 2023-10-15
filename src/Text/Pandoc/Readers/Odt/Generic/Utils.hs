@@ -1,27 +1,4 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-
-
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns  #-}
-
-{-
-Copyright (C) 2015 Martin Linnemann <theCodingMarlin@googlemail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Reader.Odt.Generic.Utils
    Copyright   : Copyright (C) 2015 Martin Linnemann
@@ -41,10 +18,8 @@ module Text.Pandoc.Readers.Odt.Generic.Utils
 , uncurry6
 , swap
 , reverseComposition
-, bool
 , tryToRead
 , Lookupable(..)
-, readLookupables
 , readLookupable
 , readPercent
 , findBy
@@ -52,41 +27,32 @@ module Text.Pandoc.Readers.Odt.Generic.Utils
 , composition
 ) where
 
-import Prelude
 import Control.Category (Category, (<<<), (>>>))
 import qualified Control.Category as Cat (id)
-import Control.Monad (msum)
-
+import Data.Char (isSpace)
 import qualified Data.Foldable as F (Foldable, foldr)
 import Data.Maybe
+import Data.Text (Text)
+import qualified Data.Text as T
 
-
--- | Aequivalent to
+-- | Equivalent to
 -- > foldr (.) id
 -- where '(.)' are 'id' are the ones from "Control.Category"
 -- and 'foldr' is the one from "Data.Foldable".
--- The noun-form was chosen to be consistend with 'sum', 'product' etc
+-- The noun-form was chosen to be consistent with 'sum', 'product' etc
 -- based on the discussion at
 -- <https://groups.google.com/forum/#!topic/haskell-cafe/VkOZM1zaHOI>
 -- (that I was not part of)
 composition        :: (Category cat, F.Foldable f) => f (cat a a) -> cat a a
 composition        = F.foldr (<<<) Cat.id
 
--- | Aequivalent to
+-- | Equivalent to
 -- > foldr (flip (.)) id
 -- where '(.)' are 'id' are the ones from "Control.Category"
 -- and 'foldr' is the one from "Data.Foldable".
 -- A reversed version of 'composition'.
 reverseComposition :: (Category cat, F.Foldable f) => f (cat a a) -> cat a a
 reverseComposition = F.foldr (>>>) Cat.id
-
--- | 'Either' has 'either', 'Maybe' has 'maybe'. 'Bool' should have 'bool'.
--- Note that the first value is selected if the boolean value is 'False'.
--- That makes 'bool' consistent with the other two. Also, 'bool' now takes its
--- arguments in the exact opposite order compared to the normal if construct.
-bool :: a -> a -> Bool -> a
-bool x _ False = x
-bool _ x True  = x
 
 -- | This function often makes it possible to switch values with the functions
 -- that are applied to them.
@@ -109,8 +75,8 @@ swing = flip.(.flip id)
 -- (nobody wants that) while the latter returns "to much" for simple purposes.
 -- This function instead applies 'reads' and returns the first match (if any)
 -- in a 'Maybe'.
-tryToRead :: (Read r) => String -> Maybe r
-tryToRead = reads >>> listToMaybe >>> fmap fst
+tryToRead :: (Read r) => Text -> Maybe r
+tryToRead = (reads . T.unpack) >>> listToMaybe >>> fmap fst
 
 -- | A version of 'reads' that requires a '%' sign after the number
 readPercent :: ReadS Int
@@ -121,28 +87,12 @@ readPercent s = [ (i,s') | (i   , r ) <- reads s
 -- | Data that can be looked up.
 -- This is mostly a utility to read data with kind *.
 class Lookupable a where
-  lookupTable :: [(String, a)]
-
--- | The idea is to use this function as if there was a declaration like
---
--- > instance (Lookupable a) => (Read a) where
--- >   readsPrec _ = readLookupables
--- .
--- But including this code in this form would need UndecideableInstances.
--- That is a bad idea. Luckily 'readLookupable' (without the s at the end)
--- can be used directly in almost any case.
-readLookupables :: (Lookupable a) => String -> [(a,String)]
-readLookupables s = [ (a,rest) | (word,rest) <- lex s,
-                                 let result = lookup word lookupTable,
-                                 isJust result,
-                                 let Just a = result
-                    ]
+  lookupTable :: [(Text, a)]
 
 -- | Very similar to a simple 'lookup' in the 'lookupTable', but with a lexer.
-readLookupable :: (Lookupable a) => String -> Maybe a
-readLookupable s = msum
-                 $ map ((`lookup` lookupTable).fst)
-                 $ lex s
+readLookupable :: (Lookupable a) => Text -> Maybe a
+readLookupable s =
+  lookup (T.takeWhile (not . isSpace) $ T.dropWhile isSpace s) lookupTable
 
 uncurry3 :: (a->b->c                -> z) -> (a,b,c          ) -> z
 uncurry4 :: (a->b->c->d             -> z) -> (a,b,c,d        ) -> z

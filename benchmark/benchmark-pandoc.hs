@@ -1,7 +1,6 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-
-Copyright (C) 2012-2018 John MacFarlane <jgm@berkeley.edu>
+Copyright (C) 2012-2022 John MacFarlane <jgm@berkeley.edu>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -17,72 +16,88 @@ You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
-import Prelude
 import Text.Pandoc
+import Text.Pandoc.MIME
+import Control.DeepSeq (force)
+import Control.Monad.Except (throwError)
 import qualified Text.Pandoc.UTF8 as UTF8
 import qualified Data.ByteString as B
-import Criterion.Main
-import Criterion.Types (Config(..))
-import Data.List (intersect)
+import qualified Data.Text as T
+import Test.Tasty.Bench
+-- import Gauge
+import qualified Data.ByteString.Lazy as BL
 import Data.Maybe (mapMaybe)
-import System.Environment (getArgs)
+import Data.List (sortOn)
 
 readerBench :: Pandoc
-            -> String
+            -> T.Text
             -> Maybe Benchmark
-readerBench doc name =
-  case res of
-       Right (readerFun, inp) ->
-          Just $ bench (name ++ " reader")
-               $ nf (\i -> either (error . show) id $ runPure (readerFun i))
-                 inp
-       Left _ -> Nothing
-  where res = runPure $ do
-          (TextReader r, rexts)
-                     <- either (fail . show) return $ getReader name
-          (TextWriter w, wexts)
-                     <- either (fail . show) return $ getWriter name
-          inp <- w def{ writerWrapText = WrapAuto, writerExtensions = wexts }
-                  doc
-          return (r def{ readerExtensions = rexts }, inp)
+readerBench _ name
+  | name `elem` ["bibtex", "biblatex", "csljson"] = Nothing
+readerBench doc name = either (const Nothing) Just $
+  runPure $ do
+    (rdr, rexts) <- getReader name
+    (wtr, wexts) <- getWriter name
+    case (rdr, wtr) of
+      (TextReader r, TextWriter w) -> do
+        inp <- w def{ writerWrapText = WrapAuto
+                    , writerExtensions = wexts } doc
+        return $ bench (T.unpack name) $
+          nf (either (error . show) id . runPure . r def) inp
+      (ByteStringReader r, ByteStringWriter w) -> do
+        tmpl <- Just <$> compileDefaultTemplate name
+        inp <- w def{ writerWrapText = WrapAuto
+                    , writerExtensions = wexts
+                    , writerTemplate = tmpl } doc
+        return $ bench (T.unpack name) $
+          nf (either (error . show) id .
+                runPure . r def{readerExtensions = rexts}) inp
+      _ -> throwError $ PandocSomeError $ "text/bytestring format mismatch: "
+                           <> name
 
-writerBench :: Pandoc
-            -> String
+getImages :: IO [(FilePath, MimeType, BL.ByteString)]
+getImages = do
+  ll <- B.readFile "test/lalune.jpg"
+  mv <- B.readFile "test/movie.jpg"
+  return [("lalune.jpg", "image/jpg", BL.fromStrict ll)
+         ,("movie.jpg", "image/jpg", BL.fromStrict mv)]
+
+writerBench :: [(FilePath, MimeType, BL.ByteString)]
+            -> Pandoc
+            -> T.Text
             -> Maybe Benchmark
-writerBench doc name =
-  case res of
-       Right writerFun ->
-          Just $ bench (name ++ " writer")
+writerBench _ _ name
+  | name `elem` ["bibtex", "biblatex", "csljson"] = Nothing
+writerBench imgs doc name = either (const Nothing) Just $
+  runPure $ do
+    (wtr, wexts) <- getWriter name
+    case wtr of
+      TextWriter writerFun ->
+        return $ bench (T.unpack name)
                $ nf (\d -> either (error . show) id $
-                            runPure (writerFun d)) doc
-       _ -> Nothing
-  where res = runPure $ do
-          (TextWriter w, wexts)
-                      <- either (fail . show) return $ getWriter name
-          return $ w def{ writerExtensions = wexts }
+                       runPure $ do
+                         mapM_ (\(fp,mt,bs) -> insertMedia fp (Just mt) bs) imgs
+                         writerFun def{ writerExtensions = wexts} d)
+                    doc
+      ByteStringWriter writerFun ->
+        return $ bench (T.unpack name)
+               $ nf (\d -> either (error . show) id $
+                       runPure $ do
+                         mapM_ (\(fp,mt,bs) -> insertMedia fp (Just mt) bs) imgs
+                         writerFun def{ writerExtensions = wexts} d)
+                    doc
 
 main :: IO ()
 main = do
-  args <- filter (\x -> take 1 x /= "-") <$> getArgs
-  print args
-  let matchReader (n, TextReader _) =
-         null args || ("reader" `elem` args && n `elem` args)
-      matchReader _                 = False
-  let matchWriter (n, TextWriter _) =
-         null args || ("writer" `elem` args && n `elem` args)
-      matchWriter _                 = False
-  let matchedReaders = map fst $ (filter matchReader readers
-                                    :: [(String, Reader PandocPure)])
-  let matchedWriters = map fst $ (filter matchWriter writers
-                                    :: [(String, Writer PandocPure)])
   inp <- UTF8.toText <$> B.readFile "test/testsuite.txt"
   let opts = def
-  let doc = either (error . show) id $ runPure $ readMarkdown opts inp
-  let readerBs = mapMaybe (readerBench doc)
-                 $ filter (/="haddock")
-                 (matchedReaders `intersect` matchedWriters)
-                 -- we need the corresponding writer to generate
-                 -- input for the reader
-  let writerBs = mapMaybe (writerBench doc) matchedWriters
-  defaultMainWith defaultConfig{ timeLimit = 6.0 }
-    (writerBs ++ readerBs)
+  let doc = either (error . show) force $ runPure $ readMarkdown opts inp
+  defaultMain
+    [ env getImages $ \imgs ->
+      bgroup "writers" $ mapMaybe (writerBench imgs doc . fst)
+                         (sortOn fst
+                           writers :: [(T.Text, Writer PandocPure)])
+    , bgroup "readers" $ mapMaybe (readerBench doc . fst)
+                         (sortOn fst
+                           readers :: [(T.Text, Reader PandocPure)])
+    ]

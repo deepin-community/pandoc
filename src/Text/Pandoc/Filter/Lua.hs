@@ -1,25 +1,6 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2006-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Filter.Lua
-   Copyright   : Copyright (C) 2006-2018 John MacFarlane
+   Copyright   : Copyright (C) 2006-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley@edu>
@@ -30,26 +11,41 @@ Apply Lua filters to modify a pandoc documents programmatically.
 -}
 module Text.Pandoc.Filter.Lua (apply) where
 
-import Prelude
 import Control.Exception (throw)
-import Text.Pandoc.Class (PandocIO)
+import Control.Monad ((>=>))
+import qualified Data.Text as T
+import Text.Pandoc.Class (PandocMonad)
+import Control.Monad.Trans (MonadIO)
 import Text.Pandoc.Definition (Pandoc)
-import Text.Pandoc.Error (PandocError (PandocFilterError))
-import Text.Pandoc.Filter.Path (expandFilterPath)
-import Text.Pandoc.Lua (LuaException (..), runLuaFilter)
-import Text.Pandoc.Options (ReaderOptions)
+import Text.Pandoc.Error (PandocError (PandocFilterError, PandocLuaError))
+import Text.Pandoc.Filter.Environment (Environment (..))
+import Text.Pandoc.Lua (Global (..), runLua, runFilterFile, setGlobals)
 
-apply :: ReaderOptions
+-- | Run the Lua filter in @filterPath@ for a transformation to the
+-- target format (first element in args). Pandoc uses Lua init files to
+-- setup the Lua interpreter.
+apply :: (PandocMonad m, MonadIO m)
+      => Environment
       -> [String]
       -> FilePath
       -> Pandoc
-      -> PandocIO Pandoc
-apply ropts args f d = do
-  f' <- expandFilterPath f
+      -> m Pandoc
+apply fenv args fp doc = do
   let format = case args of
                  (x:_) -> x
-                 _     -> error "Format not supplied for lua filter"
-  res <- runLuaFilter ropts f' format d
-  case res of
-    Right x               -> return x
-    Left (LuaException s) -> throw (PandocFilterError f s)
+                 _     -> error "Format not supplied for Lua filter"
+  runLua >=> forceResult fp $ do
+    setGlobals [ FORMAT $ T.pack format
+               , PANDOC_READER_OPTIONS (envReaderOptions fenv)
+               , PANDOC_WRITER_OPTIONS (envWriterOptions fenv)
+               , PANDOC_SCRIPT_FILE fp
+               ]
+    runFilterFile fp doc
+
+forceResult :: (PandocMonad m, MonadIO m)
+            => FilePath -> Either PandocError Pandoc -> m Pandoc
+forceResult fp eitherResult = case eitherResult of
+  Right x  -> return x
+  Left err -> throw . PandocFilterError (T.pack fp) $ case err of
+    PandocLuaError msg -> msg
+    _                  -> T.pack $ show err

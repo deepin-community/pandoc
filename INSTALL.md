@@ -1,94 +1,172 @@
 # Installing pandoc
 
+The simplest way to get the latest pandoc release is to use the installer.
+
+<a href="https://github.com/jgm/pandoc/releases/latest"
+  class="btn btn-primary" id="downloadInstallerBtn">
+  Download the latest installer
+</a>
+
+For alternative ways to install pandoc, see below
+under the heading for your operating system.
+
 ## Windows
 
-  - There is a package installer at pandoc's [download page].
-    This will install pandoc, replacing older versions, and
-    update your path to include the directory where pandoc's
-    binaries are installed.
+There is a package installer at pandoc's [download page].
+This will install pandoc, replacing older versions, and
+update your path to include the directory where pandoc's
+binaries are installed.
 
-  - If you prefer not to use the msi installer, we also provide
-    a zip file that contains pandoc's binaries and
-    documentation.  Simply unzip this file and move the binaries
-    to a directory of your choice.
+If you prefer not to use the msi installer, we also provide
+a zip file that contains pandoc's binaries and
+documentation.  Simply unzip this file and move the binaries
+to a directory of your choice.
 
-  - For PDF output, you'll also need to install LaTeX.
-    We recommend [MiKTeX](http://miktex.org/).
+Alternatively, you can install pandoc using
+[Chocolatey](https://chocolatey.org):
+
+    choco install pandoc
+
+Chocolatey can also install other software that integrates with Pandoc.
+For example, to install `rsvg-convert` (from [librsvg], covering formats
+without SVG support), [Python] (to use Pandoc filters), and
+[MiKTeX] (to typeset PDFs with [LaTeX]):
+
+    choco install rsvg-convert python miktex
+
+Using multiple installation methods can result in two separate
+installations of pandoc; it is recommended to properly uninstall
+pandoc before switching to an alternative installation method.
+
+By default, Pandoc creates PDFs using LaTeX.
+We recommend installing it via [MiKTeX].
 
 ## macOS
 
-  - You can install pandoc using
-    [homebrew](http://brew.sh): `brew install pandoc`.
+There is a package installer at pandoc's [download page].
+If you later want to uninstall the package, you can do so
+by downloading [this script][uninstaller]
+and running it with `perl uninstall-pandoc.pl`.
 
-  - There is a package installer at pandoc's [download page].
-    If you later want to uninstall the package, you can do so
-    by downloading [this script][uninstaller]
-    and running it with `perl uninstall-pandoc.pl`.
+Alternatively, you can install pandoc using
+[Homebrew](https://brew.sh):
 
-  - We also provide a zip file containing the binaries and man
-    pages, for those who prefer not to use the installer.  Simply
-    unzip the file and move the binaries and man pages to
-    whatever directory you like.
+     brew install pandoc
 
-  - For PDF output, you'll also need LaTeX.  Because a full [MacTeX]
-    installation takes more than a gigabyte of disk space, we recommend
-    installing [BasicTeX](http://www.tug.org/mactex/morepackages.html)
-    (64M) and using the `tlmgr` tool to install additional packages
-    as needed.  If you get errors warning of fonts not found, try
+Homebrew can also install other software that integrates with Pandoc.
+For example, to install [librsvg] (its `rsvg-convert` covers formats
+without SVG support), [Python] (to use Pandoc filters), and
+[BasicTeX] (to typeset PDFs with [LaTeX]):
 
-        tlmgr install collection-fontsrecommended
+     brew install librsvg python homebrew/cask/basictex
+
+Note: On unsupported versions of macOS (more than three releases old),
+Homebrew installs from source, which takes additional time and disk space
+for the `ghc` compiler and dependent Haskell libraries.
+
+We also provide a zip file containing the binaries and man
+pages, for those who prefer not to use the installer.  Simply
+unzip the file and move the binaries and man pages to
+whatever directory you like.
+
+By default, Pandoc creates PDFs using LaTeX.  Because a full [MacTeX]
+installation uses four gigabytes of disk space, we recommend
+[BasicTeX] or [TinyTeX](https://yihui.org/tinytex/)
+and using the `tlmgr` tool to install additional packages
+as needed.  If you receive errors warning of fonts not found:
+
+    tlmgr install collection-fontsrecommended
 
 ## Linux
 
-  - First, try your package manager.
-    Pandoc is in the [Debian], [Ubuntu], [Slackware],
-    [Arch], [Fedora], [NiXOS], [openSUSE], and [gentoo] repositories.
-    Note, however, that versions in the repositories are often
-    old.
+Check whether the pandoc version in your package manager is
+not outdated. Pandoc is in the [Debian], [Ubuntu], [Slackware],
+[Arch], [Fedora], [NiXOS], [openSUSE], [gentoo] and [Void] repositories.
 
-  - We provide a binary package for amd64 architecture on
-    the [download page].  This provides both `pandoc` and
-    `pandoc-citeproc`. The executables are statically linked and
-    have no dynamic dependencies or dependencies on external
-    data files.  Note:  because of the static
-    linking, the pandoc binary from this package cannot use lua
-    filters that require external lua modules written in C.
+To get the latest release, we provide a binary package for amd64
+architecture on the **[download page]**.
 
-    Both a tarball and a deb installer are provided.  To install the deb:
+The executable is statically linked and
+has no dynamic dependencies or dependencies on external
+data files.  Note:  because of the static
+linking, the pandoc binary from this package cannot use lua
+filters that require external lua modules written in C.
 
-        sudo dpkg -i $DEB
+Both a tarball and a deb installer are provided.  To install the deb:
 
-    where `$DEB` is the path to the downloaded deb.  This will
-    install the `pandoc` and `pandoc-citeproc` executables and
-    man pages.
+    sudo dpkg -i $DEB
 
-    If you use an RPM-based distro, you may be able to install
-    the deb from our download page using `alien`.
+where `$DEB` is the path to the downloaded deb.  This will
+install the `pandoc` executable and man page.
 
-    On any distro, you may install from the tarball into `$DEST`
-    (say, `/usr/local/` or `$HOME/.local`) by doing
+If you use an RPM-based distro, you may be able to install
+the deb from our download page using `alien`.
 
-        tar xvzf $TGZ --strip-components 1 -C $DEST
+On any distro, you may install from the tarball into `$DEST`
+(say, `/usr/local/` or `$HOME/.local`) by doing
 
-    where `$TGZ` is the path to the downloaded zipped tarball.
-    For Pandoc versions before 2.0, which don't provide
-    a tarball, try instead
+    tar xvzf $TGZ --strip-components 1 -C $DEST
 
-        ar p $DEB data.tar.gz | tar xvz --strip-components 2 -C $DEST
+where `$TGZ` is the path to the downloaded zipped tarball.
+For Pandoc versions before 2.0, which don't provide
+a tarball, try instead
 
-  - You can also install from source, using the
-    instructions below under [Compiling from source].
-    Note that most distros have the Haskell platform in their
-    package repositories.  For example, on Debian/Ubuntu,
-    you can install it with `apt-get install haskell-platform`.
+    ar p $DEB data.tar.gz | tar xvz --strip-components 2 -C $DEST
 
-  - For PDF output, you'll need LaTeX.  We recommend installing
-    [TeX Live](http://www.tug.org/texlive/) via your package
-    manager.  (On Debian/Ubuntu, `apt-get install texlive`.)
+You can also install from source, using the
+instructions below under [Compiling from source].
+Note that most distros have the Haskell platform in their
+package repositories.  For example, on Debian/Ubuntu,
+you can install it with `apt-get install haskell-platform`.
+
+For PDF output, you'll need LaTeX.  We recommend installing
+[TeX Live](https://www.tug.org/texlive/) via your package
+manager.  (On Debian/Ubuntu, `apt-get install texlive`.)
+
+## Chrome OS
+
+On Chrome OS, pandoc can be installed using the
+[chromebrew](https://github.com/skycocker/chromebrew) package manager
+with the command:
+
+```sh
+crew install pandoc
+```
+
+This will automatically build and configure pandoc for the specific
+device you are using.
 
 ## BSD
 
-  - Pandoc is in the [NetBSD] and [FreeBSD ports] repositories.
+Pandoc is in the [NetBSD] and [FreeBSD ports] repositories.
+
+## Docker
+
+The official Docker images for pandoc can be found at
+<https://github.com/pandoc/dockerfiles> and at
+[dockerhub](https://hub.docker.com/).
+
+The [pandoc/core](https://hub.docker.com/r/pandoc/core)
+image contains `pandoc`.
+
+The [pandoc/latex](https://hub.docker.com/r/pandoc/latex)
+image also contains the minimal LaTeX installation needed
+to produce PDFs using pandoc.
+
+To run pandoc using Docker, converting `README.md` to `README.pdf`:
+
+    docker run --rm --volume "`pwd`:/data" --user `id -u`:`id -g` pandoc/latex README.md -o README.pdf
+
+## GitHub Actions
+
+Pandoc can be run through
+[GitHub Actions](https://github.com/features/actions).  For some
+examples, see <https://github.com/pandoc/pandoc-action-example>.
+
+## GitLab CI/CD
+
+Pandoc can be run through [GitLab CI/CD].  For some
+examples, see <https://gitlab.com/pandoc/pandoc-ci-example>.
 
 ## Compiling from source
 
@@ -118,9 +196,9 @@ the last released version.
 
 ### Quick stack method
 
-The easiest way to build pandoc from source is to use [stack]:
+The easiest way to build pandoc from source is to use [stack][stack]:
 
-1.  Install [stack]. Note that Pandoc requires stack >= 1.6.0.
+1.  Install [stack][stack]. Note that Pandoc requires stack >= 1.7.0.
 
 2.  Change to the pandoc source directory and issue the following commands:
 
@@ -137,13 +215,21 @@ The easiest way to build pandoc from source is to use [stack]:
 
 1.  Install the [Haskell platform].  This will give you [GHC] and
     the [cabal-install] build tool.  Note that pandoc requires
-    GHC >= 7.10.
+    GHC >= 7.10 and cabal >= 2.0.
 
 2.  Update your package database:
 
         cabal update
 
-3.  Use `cabal` to install pandoc and its dependencies:
+3.  Check your cabal version with
+
+        cabal --version
+
+    If you have a version less than 2.0, install the latest with:
+
+        cabal install cabal-install
+
+4.  Use `cabal` to install pandoc and its dependencies:
 
         cabal install pandoc
 
@@ -156,41 +242,34 @@ The easiest way to build pandoc from source is to use [stack]:
 
         cabal install
 
-4.  Make sure the `$CABALDIR/bin` directory is in your path.  You should
+5.  Make sure the `$CABALDIR/bin` directory is in your path.  You should
     now be able to run `pandoc`:
 
         pandoc --help
 
-    [Not sure where `$CABALDIR` is?](http://www.haskell.org/haskellwiki/Cabal-Install#The_cabal-install_configuration_file)
+    [Not sure where `$CABALDIR` is?](https://wiki.haskell.org/Cabal-Install#The_cabal-install_configuration_file)
 
-5.  If you want to process citations with pandoc, you will also need to
-    install a separate package, `pandoc-citeproc`.  This can be installed
-    using cabal:
-
-        cabal install pandoc-citeproc
-
-    By default `pandoc-citeproc` uses the "i;unicode-casemap" method
+5.  By default `pandoc` uses the "i;unicode-casemap" method
     to sort bibliography entries (RFC 5051).  If you would like to
     use the locale-sensitive unicode collation algorithm instead,
-    specify the `unicode_collation` flag:
+    specify the `icu` flag (which affects the dependency `citeproc`):
 
-        cabal install pandoc-citeproc -funicode_collation
+        cabal install pandoc -ficu
 
     Note that this requires the `text-icu` library, which in turn
     depends on the C library `icu4c`.  Installation directions
-    vary by platform.  Here is how it might work on macOS with homebrew:
+    vary by platform.  Here is how it might work on macOS with Homebrew:
 
         brew install icu4c
-        cabal install --extra-lib-dirs=/usr/local/Cellar/icu4c/51.1/lib \
-          --extra-include-dirs=/usr/local/Cellar/icu4c/51.1/include \
-          -funicode_collation text-icu pandoc-citeproc
+        stack install pandoc \
+          --flag "citeproc:icu" \
+          --extra-lib-dirs=/usr/local/opt/icu4c/lib \
+          --extra-include-dirs=/usr/local/opt/icu4c/include
 
 6.  The `pandoc.1` man page will be installed automatically.  cabal shows
     you where it is installed: you may need to set your `MANPATH`
     accordingly. If `MANUAL.txt` has been modified, the man page can be
     rebuilt: `make man/pandoc.1`.
-
-    The `pandoc-citeproc.1` man page will also be installed automatically.
 
 
 ### Custom cabal method
@@ -200,6 +279,7 @@ over the build and installation.  Most users should use the
 quick install, but this information may be of use to packagers.
 For more details, see the [Cabal User's Guide].  These instructions
 assume that the pandoc source directory is your working directory.
+You will need cabal version 2.0 or higher.
 
 1.  Install dependencies:  in addition to the [Haskell platform],
     you will need a number of additional libraries.  You can install
@@ -312,24 +392,30 @@ To run just the markdown benchmarks:
 
 
 [Arch]: https://www.archlinux.org/packages/community/x86_64/pandoc/
-[Cabal User's Guide]: http://www.haskell.org/cabal/release/latest/doc/users-guide/builders.html#setup-configure-paths
+[Cabal User's Guide]: https://cabal.readthedocs.io/
 [Debian]: https://packages.debian.org/pandoc
 [Fedora]: https://apps.fedoraproject.org/packages/pandoc
-[FreeBSD ports]: http://www.freshports.org/textproc/pandoc/
-[GHC]:  http://www.haskell.org/ghc/
-[GPL]:  http://www.gnu.org/copyleft/gpl.html
-[Haskell platform]: http://hackage.haskell.org/platform/
-[MacPorts]: http://trac.macports.org/browser/trunk/dports/textproc/pandoc/Portfile
+[FreeBSD ports]: https://www.freshports.org/textproc/hs-pandoc/
+[GHC]:  https://www.haskell.org/ghc/
+[GitLab CI/CD]: https://about.gitlab.com/stages-devops-lifecycle/continuous-integration/
+[Haskell platform]: https://hackage.haskell.org/platform/
+[MacPorts]: https://trac.macports.org/browser/trunk/dports/textproc/pandoc/Portfile
 [MacTeX]: https://tug.org/mactex/
-[NetBSD]: http://pkgsrc.se/wip/pandoc
+[BasicTeX]: https://www.tug.org/mactex/morepackages.html
+[LaTeX]: https://www.latex-project.org
+[MiKTeX]: https://miktex.org/
+[librsvg]: https://wiki.gnome.org/Projects/LibRsvg
+[Python]: https://www.python.org
+[NetBSD]: https://pkgsrc.se/wip/pandoc
 [NixOS]: https://nixos.org/nixos/packages.html
 [Slackware]: https://www.slackbuilds.org/result/?search=pandoc&sv=
 [Ubuntu]: https://packages.ubuntu.com/pandoc
 [download page]: https://github.com/jgm/pandoc/releases/latest
-[gentoo]: http://packages.gentoo.org/package/app-text/pandoc
+[gentoo]: https://packages.gentoo.org/package/app-text/pandoc
 [haskell repository]: https://wiki.archlinux.org/index.php/Haskell_Package_Guidelines#.5Bhaskell.5D
 [openSUSE]: https://software.opensuse.org/package/pandoc
-[source tarball]: http://hackage.haskell.org/package/pandoc
-[stack]: http://docs.haskellstack.org/en/stable/install_and_upgrade.html
-[cabal-install]: http://hackage.haskell.org/trac/hackage/wiki/CabalInstall
+[source tarball]: https://hackage.haskell.org/package/pandoc
+[stack]: https://docs.haskellstack.org/en/stable/install_and_upgrade.html
+[cabal-install]: https://hackage.haskell.org/package/cabal-install
+[Void]: https://voidlinux.org/
 [uninstaller]: https://raw.githubusercontent.com/jgm/pandoc/master/macos/uninstall-pandoc.pl

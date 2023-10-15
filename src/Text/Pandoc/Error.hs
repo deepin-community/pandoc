@@ -1,75 +1,167 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric      #-}
-{-
-Copyright (C) 2006-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
+{-# LANGUAGE OverloadedStrings  #-}
 {- |
    Module      : Text.Pandoc.Error
-   Copyright   : Copyright (C) 2006-2018 John MacFarlane
+   Copyright   : Copyright (C) 2006-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
    Stability   : alpha
    Portability : portable
 
-This module provides a standard way to deal with possible errors encounted
-during parsing.
+This module provides a standard way to deal with possible errors
+encountered during parsing.
 
 -}
 module Text.Pandoc.Error (
   PandocError(..),
+  renderError,
   handleError) where
 
-import Prelude
-import Control.Exception (Exception)
+import Control.Exception (Exception, displayException)
 import Data.Typeable (Typeable)
+import Data.Word (Word8)
+import Data.Text (Text)
+import Data.List (sortOn)
+import qualified Data.Text as T
+import Data.Ord (Down(..))
 import GHC.Generics (Generic)
 import Network.HTTP.Client (HttpException)
 import System.Exit (ExitCode (..), exitWith)
 import System.IO (stderr)
 import qualified Text.Pandoc.UTF8 as UTF8
+import Text.Pandoc.Sources (Sources(..))
+import Text.Printf (printf)
 import Text.Parsec.Error
 import Text.Parsec.Pos hiding (Line)
+import Text.Pandoc.Shared (tshow)
+import Citeproc (CiteprocError, prettyCiteprocError)
 
-type Input = String
-
-data PandocError = PandocIOError String IOError
-                 | PandocHttpError String HttpException
-                 | PandocShouldNeverHappenError String
-                 | PandocSomeError String
-                 | PandocParseError String
-                 | PandocParsecError Input ParseError
-                 | PandocMakePDFError String
-                 | PandocOptionError String
-                 | PandocSyntaxMapError String
+data PandocError = PandocIOError Text IOError
+                 | PandocHttpError Text HttpException
+                 | PandocShouldNeverHappenError Text
+                 | PandocSomeError Text
+                 | PandocParseError Text
+                 | PandocParsecError Sources ParseError
+                 | PandocMakePDFError Text
+                 | PandocOptionError Text
+                 | PandocSyntaxMapError Text
                  | PandocFailOnWarningError
-                 | PandocPDFProgramNotFoundError String
-                 | PandocPDFError String
-                 | PandocFilterError String String
-                 | PandocCouldNotFindDataFileError String
-                 | PandocResourceNotFound String
-                 | PandocTemplateError String
-                 | PandocAppError String
-                 | PandocEpubSubdirectoryError String
-                 | PandocMacroLoop String
+                 | PandocPDFProgramNotFoundError Text
+                 | PandocPDFError Text
+                 | PandocXMLError Text Text
+                 | PandocFilterError Text Text
+                 | PandocLuaError Text
+                 | PandocCouldNotFindDataFileError Text
+                 | PandocCouldNotFindMetadataFileError Text
+                 | PandocResourceNotFound Text
+                 | PandocTemplateError Text
+                 | PandocAppError Text
+                 | PandocEpubSubdirectoryError Text
+                 | PandocMacroLoop Text
+                 | PandocUTF8DecodingError Text Int Word8
+                 | PandocIpynbDecodingError Text
+                 | PandocUnsupportedCharsetError Text
+                 | PandocUnknownReaderError Text
+                 | PandocUnknownWriterError Text
+                 | PandocUnsupportedExtensionError Text Text
+                 | PandocCiteprocError CiteprocError
+                 | PandocBibliographyError Text Text
                  deriving (Show, Typeable, Generic)
 
 instance Exception PandocError
+
+renderError :: PandocError -> Text
+renderError e =
+  case e of
+    PandocIOError _ err' -> T.pack $ displayException err'
+    PandocHttpError u err' ->
+      "Could not fetch " <> u <> "\n" <> tshow err'
+    PandocShouldNeverHappenError s ->
+      "Something we thought was impossible happened!\n" <>
+      "Please report this to pandoc's developers: " <> s
+    PandocSomeError s -> s
+    PandocParseError s -> s
+    PandocParsecError (Sources inputs) err' ->
+        let errPos = errorPos err'
+            errLine = sourceLine errPos
+            errColumn = sourceColumn errPos
+            errFile = sourceName errPos
+            errorInFile =
+              case sortOn (Down . sourceLine . fst)
+                      [ (pos,t)
+                        | (pos,t) <- inputs
+                        , sourceName pos == errFile
+                        , sourceLine pos <= errLine
+                      ] of
+                []  -> ""
+                ((pos,txt):_) ->
+                  let ls = T.lines txt <> [""]
+                      ln = (errLine - sourceLine pos) + 1
+                   in if length ls > ln && ln >= 1
+                         then T.concat ["\n", ls !! (ln - 1)
+                                       ,"\n", T.replicate (errColumn - 1) " "
+                                       ,"^"]
+                         else ""
+        in  "Error at " <> tshow  err' <> errorInFile
+    PandocMakePDFError s -> s
+    PandocOptionError s -> s
+    PandocSyntaxMapError s -> s
+    PandocFailOnWarningError -> "Failing because there were warnings."
+    PandocPDFProgramNotFoundError pdfprog ->
+        pdfprog <> " not found. Please select a different --pdf-engine or install " <> pdfprog
+    PandocPDFError logmsg -> "Error producing PDF.\n" <> logmsg
+    PandocXMLError fp logmsg -> "Invalid XML" <>
+        (if T.null fp then "" else " in " <> fp) <> ":\n" <> logmsg
+    PandocFilterError filtername msg -> "Error running filter " <>
+        filtername <> ":\n" <> msg
+    PandocLuaError msg -> "Error running Lua:\n" <> msg
+    PandocCouldNotFindDataFileError fn ->
+        "Could not find data file " <> fn
+    PandocCouldNotFindMetadataFileError fn ->
+        "Could not find metadata file " <> fn
+    PandocResourceNotFound fn ->
+        "File " <> fn <> " not found in resource path"
+    PandocTemplateError s -> "Error compiling template " <> s
+    PandocAppError s -> s
+    PandocEpubSubdirectoryError s ->
+      "EPUB subdirectory name '" <> s <> "' contains illegal characters"
+    PandocMacroLoop s ->
+      "Loop encountered in expanding macro " <> s
+    PandocUTF8DecodingError f offset w ->
+      "UTF-8 decoding error in " <> f <> " at byte offset " <> tshow offset <>
+      " (" <> T.pack (printf "%2x" w) <> ").\n" <>
+      "The input must be a UTF-8 encoded text."
+    PandocIpynbDecodingError w ->
+      "ipynb decoding error: " <> w
+    PandocUnsupportedCharsetError charset ->
+      "Unsupported charset " <> charset
+    PandocUnknownReaderError r ->
+      "Unknown input format " <> r <>
+      case r of
+        "doc" -> "\nPandoc can convert from DOCX, but not from DOC." <>
+                 "\nTry using Word to save your DOC file as DOCX," <>
+                 " and convert that with pandoc."
+        "pdf" -> "\nPandoc can convert to PDF, but not from PDF."
+        _     -> ""
+    PandocUnknownWriterError w ->
+       "Unknown output format " <> w <>
+       case w of
+         "pdf" -> "To create a pdf using pandoc, use" <>
+                  " -t latex|beamer|context|ms|html5" <>
+                 "\nand specify an output file with " <>
+                 ".pdf extension (-o filename.pdf)."
+         "doc" -> "\nPandoc can convert to DOCX, but not to DOC."
+         _     -> ""
+    PandocUnsupportedExtensionError ext f ->
+      "The extension " <> ext <> " is not supported " <>
+      "for " <> f
+    PandocCiteprocError e' ->
+      prettyCiteprocError e'
+    PandocBibliographyError fp msg ->
+      "Error reading bibliography file " <> fp <> ":\n" <> msg
+
 
 -- | Handle PandocError by exiting with an error message.
 handleError :: Either PandocError a -> IO a
@@ -77,48 +169,42 @@ handleError (Right r) = return r
 handleError (Left e) =
   case e of
     PandocIOError _ err' -> ioError err'
-    PandocHttpError u err' -> err 61 $
-      "Could not fetch " ++ u ++ "\n" ++ show err'
-    PandocShouldNeverHappenError s -> err 62 s
-    PandocSomeError s -> err 63 s
-    PandocParseError s -> err 64 s
-    PandocParsecError input err' ->
-        let errPos = errorPos err'
-            errLine = sourceLine errPos
-            errColumn = sourceColumn errPos
-            ls = lines input ++ [""]
-            errorInFile = if length ls > errLine - 1
-                            then concat ["\n", ls !! (errLine - 1)
-                                        ,"\n", replicate (errColumn - 1) ' '
-                                        ,"^"]
-                        else ""
-        in  err 65 $ "\nError at " ++ show  err' ++
-                     -- if error comes from a chunk or included file,
-                     -- then we won't get the right text this way:
-                     if sourceName errPos == "source"
-                        then errorInFile
-                        else ""
-    PandocMakePDFError s -> err 65 s
-    PandocOptionError s -> err 2 s
-    PandocSyntaxMapError s -> err 67 s
-    PandocFailOnWarningError -> err 3 "Failing because there were warnings."
-    PandocPDFProgramNotFoundError pdfprog -> err 47 $
-        pdfprog ++ " not found. Please select a different --pdf-engine or install " ++ pdfprog
-    PandocPDFError logmsg -> err 43 $ "Error producing PDF.\n" ++ logmsg
-    PandocFilterError filtername msg -> err 83 $ "Error running filter " ++
-        filtername ++ ":\n" ++ msg
-    PandocCouldNotFindDataFileError fn -> err 97 $
-        "Could not find data file " ++ fn
-    PandocResourceNotFound fn -> err 99 $
-        "File " ++ fn ++ " not found in resource path"
-    PandocTemplateError s -> err 5 s
-    PandocAppError s -> err 1 s
-    PandocEpubSubdirectoryError s -> err 31 $
-      "EPUB subdirectory name '" ++ s ++ "' contains illegal characters"
-    PandocMacroLoop s -> err 91 $
-      "Loop encountered in expanding macro " ++ s
+    _ -> err exitCode (renderError e)
+ where
+  exitCode =
+    case e of
+      PandocIOError{} -> 1
+      PandocFailOnWarningError{} -> 3
+      PandocAppError{} -> 4
+      PandocTemplateError{} -> 5
+      PandocOptionError{} -> 6
+      PandocUnknownReaderError{} -> 21
+      PandocUnknownWriterError{} -> 22
+      PandocUnsupportedExtensionError{} -> 23
+      PandocCiteprocError{} -> 24
+      PandocBibliographyError{} -> 25
+      PandocEpubSubdirectoryError{} -> 31
+      PandocPDFError{} -> 43
+      PandocXMLError{} -> 44
+      PandocPDFProgramNotFoundError{} -> 47
+      PandocHttpError{} -> 61
+      PandocShouldNeverHappenError{} -> 62
+      PandocSomeError{} -> 63
+      PandocParseError{} -> 64
+      PandocParsecError{} -> 65
+      PandocMakePDFError{} -> 66
+      PandocSyntaxMapError{} -> 67
+      PandocFilterError{} -> 83
+      PandocLuaError{} -> 84
+      PandocMacroLoop{} -> 91
+      PandocUTF8DecodingError{} -> 92
+      PandocIpynbDecodingError{} -> 93
+      PandocUnsupportedCharsetError{} -> 94
+      PandocCouldNotFindDataFileError{} -> 97
+      PandocCouldNotFindMetadataFileError{} -> 98
+      PandocResourceNotFound{} -> 99
 
-err :: Int -> String -> IO a
+err :: Int -> Text -> IO a
 err exitCode msg = do
   UTF8.hPutStrLn stderr msg
   exitWith $ ExitFailure exitCode
