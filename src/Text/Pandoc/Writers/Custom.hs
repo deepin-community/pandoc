@@ -1,26 +1,11 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE DeriveDataTypeable   #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{- Copyright (C) 2012-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE FlexibleInstances   #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 {- |
    Module      : Text.Pandoc.Writers.Custom
-   Copyright   : Copyright (C) 2012-2018 John MacFarlane
+   Copyright   : Copyright (C) 2012-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -28,223 +13,246 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
    Portability : portable
 
 Conversion of 'Pandoc' documents to custom markup using
-a lua writer.
+a Lua writer.
 -}
 module Text.Pandoc.Writers.Custom ( writeCustom ) where
-import Prelude
+import Control.Applicative (optional)
 import Control.Arrow ((***))
 import Control.Exception
 import Control.Monad (when)
-import Control.Monad.Trans (MonadIO (liftIO))
-import Data.Char (toLower)
 import Data.List (intersperse)
-import qualified Data.Map as M
+import Data.Maybe (fromMaybe)
+import qualified Data.Text as T
 import Data.Text (Text, pack)
-import Data.Typeable
-import Foreign.Lua (Lua, ToLuaStack (..), callFunc)
-import Foreign.Lua.Api
-import Text.Pandoc.Class (PandocIO)
+import HsLua as Lua hiding (Operation (Div))
+import HsLua.Aeson (peekViaJSON)
+import Text.DocLayout (render, literal)
+import Text.DocTemplates (Context)
+import Control.Monad.IO.Class (MonadIO)
 import Text.Pandoc.Definition
-import Text.Pandoc.Error
-import Text.Pandoc.Lua.Init (runPandocLua, registerScriptPath)
-import Text.Pandoc.Lua.StackInstances ()
-import Text.Pandoc.Lua.Util (addValue, dostring')
+import Text.Pandoc.Lua (Global (..), runLua, setGlobals)
+import Text.Pandoc.Lua.Marshal.Attr (pushAttributeList)
 import Text.Pandoc.Options
-import Text.Pandoc.Templates
-import qualified Text.Pandoc.UTF8 as UTF8
+import Text.Pandoc.Class (PandocMonad)
+import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Writers.Shared
 
-attrToMap :: Attr -> M.Map String String
-attrToMap (id',classes,keyvals) = M.fromList
+-- | List of key-value pairs that is pushed to Lua as AttributeList
+-- userdata.
+newtype AttributeList = AttributeList [(Text, Text)]
+instance Pushable AttributeList where
+  push (AttributeList kvs) = pushAttributeList kvs
+
+attrToMap :: Attr -> AttributeList
+attrToMap (id',classes,keyvals) = AttributeList
     $ ("id", id')
-    : ("class", unwords classes)
+    : ("class", T.unwords classes)
     : keyvals
 
 newtype Stringify a = Stringify a
 
-instance ToLuaStack (Stringify Format) where
-  push (Stringify (Format f)) = push (map toLower f)
+instance Pushable (Stringify Format) where
+  push (Stringify (Format f)) = Lua.push (T.toLower f)
 
-instance ToLuaStack (Stringify [Inline]) where
-  push (Stringify ils) = push =<< inlineListToCustom ils
+instance Pushable (Stringify [Inline]) where
+  push (Stringify ils) = Lua.push =<< inlineListToCustom ils
 
-instance ToLuaStack (Stringify [Block]) where
-  push (Stringify blks) = push =<< blockListToCustom blks
+instance Pushable (Stringify [Block]) where
+  push (Stringify blks) = Lua.push =<< blockListToCustom blks
 
-instance ToLuaStack (Stringify MetaValue) where
-  push (Stringify (MetaMap m))       = push (fmap Stringify m)
-  push (Stringify (MetaList xs))     = push (map Stringify xs)
-  push (Stringify (MetaBool x))      = push x
-  push (Stringify (MetaString s))    = push s
-  push (Stringify (MetaInlines ils)) = push (Stringify ils)
-  push (Stringify (MetaBlocks bs))   = push (Stringify bs)
+instance Pushable (Stringify MetaValue) where
+  push (Stringify (MetaMap m))       = Lua.push (fmap Stringify m)
+  push (Stringify (MetaList xs))     = Lua.push (map Stringify xs)
+  push (Stringify (MetaBool x))      = Lua.push x
+  push (Stringify (MetaString s))    = Lua.push s
+  push (Stringify (MetaInlines ils)) = Lua.push (Stringify ils)
+  push (Stringify (MetaBlocks bs))   = Lua.push (Stringify bs)
 
-instance ToLuaStack (Stringify Citation) where
-  push (Stringify cit) = do
-    createtable 6 0
-    addValue "citationId" $ citationId cit
-    addValue "citationPrefix" . Stringify $ citationPrefix cit
-    addValue "citationSuffix" . Stringify $ citationSuffix cit
-    addValue "citationMode" $ show (citationMode cit)
-    addValue "citationNoteNum" $ citationNoteNum cit
-    addValue "citationHash" $ citationHash cit
+instance Pushable (Stringify Citation) where
+  push (Stringify cit) = flip pushAsTable cit
+    [ ("citationId", push . citationId)
+    , ("citationPrefix",  push . Stringify . citationPrefix)
+    , ("citationSuffix",  push . Stringify . citationSuffix)
+    , ("citationMode",    push . citationMode)
+    , ("citationNoteNum", push . citationNoteNum)
+    , ("citationHash",    push . citationHash)
+    ]
 
 -- | Key-value pair, pushed as a table with @a@ as the only key and @v@ as the
 -- associated value.
 newtype KeyValue a b = KeyValue (a, b)
 
-instance (ToLuaStack a, ToLuaStack b) => ToLuaStack (KeyValue a b) where
+instance (Pushable a, Pushable b) => Pushable (KeyValue a b) where
   push (KeyValue (k, v)) = do
-    newtable
-    addValue k v
-
-data PandocLuaException = PandocLuaException String
-    deriving (Show, Typeable)
-
-instance Exception PandocLuaException
+    Lua.newtable
+    Lua.push k
+    Lua.push v
+    Lua.rawset (Lua.nth 3)
 
 -- | Convert Pandoc to custom markup.
-writeCustom :: FilePath -> WriterOptions -> Pandoc -> PandocIO Text
+writeCustom :: (PandocMonad m, MonadIO m)
+            => FilePath -> WriterOptions -> Pandoc -> m Text
 writeCustom luaFile opts doc@(Pandoc meta _) = do
-  luaScript <- liftIO $ UTF8.readFile luaFile
-  res <- runPandocLua $ do
-    registerScriptPath luaFile
-    stat <- dostring' luaScript
+  let globals = [ PANDOC_DOCUMENT doc
+                , PANDOC_SCRIPT_FILE luaFile
+                , PANDOC_WRITER_OPTIONS opts
+                ]
+  res <- runLua $ do
+    setGlobals globals
+    stat <- dofileTrace luaFile
     -- check for error in lua script (later we'll change the return type
     -- to handle this more gracefully):
-    when (stat /= OK) $
-      tostring 1 >>= throw . PandocLuaException . UTF8.toString
-    -- TODO - call hierarchicalize, so we have that info
-    rendered <- docToCustom opts doc
-    context <- metaToJSON opts
-               blockListToCustom
-               inlineListToCustom
-               meta
-    return (rendered, context)
-  let (body, context) = case res of
-        Left e -> throw (PandocLuaException (show e))
-        Right x -> x
-  case writerTemplate opts of
-       Nothing  -> return $ pack body
-       Just tpl ->
-         case applyTemplate (pack tpl) $ setField "body" body context of
-              Left e  -> throw (PandocTemplateError e)
-              Right r -> return (pack r)
+    when (stat /= Lua.OK)
+      Lua.throwErrorAsException
+    (rendered, context) <- docToCustom opts doc
+    metaContext <- metaToContext opts
+                   (fmap (literal . pack) . blockListToCustom)
+                   (fmap (literal . pack) . inlineListToCustom)
+                   meta
+    return (pack rendered, context <> metaContext)
+  case res of
+    Left msg -> throw msg
+    Right (body, context) -> return $
+      case writerTemplate opts of
+        Nothing  -> body
+        Just tpl -> render Nothing $
+                    renderTemplate tpl $ setField "body" body context
 
-docToCustom :: WriterOptions -> Pandoc -> Lua String
+docToCustom :: forall e. LuaError e
+            => WriterOptions -> Pandoc -> LuaE e (String, Context Text)
 docToCustom opts (Pandoc (Meta metamap) blocks) = do
   body <- blockListToCustom blocks
-  callFunc "Doc" body (fmap Stringify metamap) (writerVariables opts)
+  -- invoke doesn't work with multiple return values, so we have to call
+  -- `Doc` manually.
+  Lua.getglobal "Doc"                 -- function
+  push body                           -- argument 1
+  push (fmap Stringify  metamap)      -- argument 2
+  push (writerVariables opts)         -- argument 3
+  call 3 2
+  rendered  <- peek (nth 2)           -- first return value
+  context <- forcePeek . optional $ peekViaJSON top  -- snd return value
+  return (rendered, fromMaybe mempty context)
 
 -- | Convert Pandoc block element to Custom.
-blockToCustom :: Block         -- ^ Block element
-              -> Lua String
+blockToCustom :: forall e. LuaError e
+              => Block         -- ^ Block element
+              -> LuaE e String
 
 blockToCustom Null = return ""
 
-blockToCustom (Plain inlines) = callFunc "Plain" (Stringify inlines)
+blockToCustom (Plain inlines) = invoke "Plain" (Stringify inlines)
 
 blockToCustom (Para [Image attr txt (src,tit)]) =
-  callFunc "CaptionedImage" src tit (Stringify txt) (attrToMap attr)
+  invoke "CaptionedImage" src tit (Stringify txt) (attrToMap attr)
 
-blockToCustom (Para inlines) = callFunc "Para" (Stringify inlines)
+blockToCustom (Para inlines) = invoke "Para" (Stringify inlines)
 
-blockToCustom (LineBlock linesList) = callFunc "LineBlock" (map Stringify linesList)
+blockToCustom (LineBlock linesList) =
+  invoke "LineBlock" (map (Stringify) linesList)
 
 blockToCustom (RawBlock format str) =
-  callFunc "RawBlock" (Stringify format) str
+  invoke "RawBlock" (Stringify format) str
 
-blockToCustom HorizontalRule = callFunc "HorizontalRule"
+blockToCustom HorizontalRule = invoke "HorizontalRule"
 
 blockToCustom (Header level attr inlines) =
-  callFunc "Header" level (Stringify inlines) (attrToMap attr)
+  invoke "Header" level (Stringify inlines) (attrToMap attr)
 
 blockToCustom (CodeBlock attr str) =
-  callFunc "CodeBlock" str (attrToMap attr)
+  invoke "CodeBlock" str (attrToMap attr)
 
-blockToCustom (BlockQuote blocks) = callFunc "BlockQuote" (Stringify blocks)
+blockToCustom (BlockQuote blocks) =
+  invoke "BlockQuote" (Stringify blocks)
 
-blockToCustom (Table capt aligns widths headers rows) =
-  let aligns' = map show aligns
+blockToCustom (Table _ blkCapt specs thead tbody tfoot) =
+  let (capt, aligns, widths, headers, rows) = toLegacyTable blkCapt specs thead tbody tfoot
+      aligns' = map show aligns
       capt' = Stringify capt
-      headers' = map Stringify headers
-      rows' = map (map Stringify) rows
-  in callFunc "Table" capt' aligns' widths headers' rows'
+      headers' = map (Stringify) headers
+      rows' = map (map (Stringify)) rows
+  in invoke "Table" capt' aligns' widths headers' rows'
 
-blockToCustom (BulletList items) = callFunc "BulletList" (map Stringify items)
+blockToCustom (BulletList items) =
+  invoke "BulletList" (map (Stringify) items)
 
 blockToCustom (OrderedList (num,sty,delim) items) =
-  callFunc "OrderedList" (map Stringify items) num (show sty) (show delim)
+  invoke "OrderedList" (map (Stringify) items) num (show sty) (show delim)
 
 blockToCustom (DefinitionList items) =
-  callFunc "DefinitionList"
-           (map (KeyValue . (Stringify *** map Stringify)) items)
+  invoke "DefinitionList"
+               (map (KeyValue . (Stringify *** map (Stringify))) items)
 
 blockToCustom (Div attr items) =
-  callFunc "Div" (Stringify items) (attrToMap attr)
+  invoke "Div" (Stringify items) (attrToMap attr)
 
 -- | Convert list of Pandoc block elements to Custom.
-blockListToCustom :: [Block]       -- ^ List of block elements
-                  -> Lua String
+blockListToCustom :: forall e. LuaError e
+                  => [Block]       -- ^ List of block elements
+                  -> LuaE e String
 blockListToCustom xs = do
-  blocksep <- callFunc "Blocksep"
+  blocksep <- invoke "Blocksep"
   bs <- mapM blockToCustom xs
   return $ mconcat $ intersperse blocksep bs
 
 -- | Convert list of Pandoc inline elements to Custom.
-inlineListToCustom :: [Inline] -> Lua String
+inlineListToCustom :: forall e. LuaError e => [Inline] -> LuaE e String
 inlineListToCustom lst = do
-  xs <- mapM inlineToCustom lst
+  xs <- mapM (inlineToCustom @e) lst
   return $ mconcat xs
 
 -- | Convert Pandoc inline element to Custom.
-inlineToCustom :: Inline -> Lua String
+inlineToCustom :: forall e. LuaError e => Inline -> LuaE e String
 
-inlineToCustom (Str str) = callFunc "Str" str
+inlineToCustom (Str str) = invoke "Str" str
 
-inlineToCustom Space = callFunc "Space"
+inlineToCustom Space = invoke "Space"
 
-inlineToCustom SoftBreak = callFunc "SoftBreak"
+inlineToCustom SoftBreak = invoke "SoftBreak"
 
-inlineToCustom (Emph lst) = callFunc "Emph" (Stringify lst)
+inlineToCustom (Emph lst) = invoke "Emph" (Stringify lst)
 
-inlineToCustom (Strong lst) = callFunc "Strong" (Stringify lst)
+inlineToCustom (Underline lst) = invoke "Underline" (Stringify lst)
 
-inlineToCustom (Strikeout lst) = callFunc "Strikeout" (Stringify lst)
+inlineToCustom (Strong lst) = invoke "Strong" (Stringify lst)
 
-inlineToCustom (Superscript lst) = callFunc "Superscript" (Stringify lst)
+inlineToCustom (Strikeout lst) = invoke "Strikeout" (Stringify lst)
 
-inlineToCustom (Subscript lst) = callFunc "Subscript" (Stringify lst)
+inlineToCustom (Superscript lst) = invoke "Superscript" (Stringify lst)
 
-inlineToCustom (SmallCaps lst) = callFunc "SmallCaps" (Stringify lst)
+inlineToCustom (Subscript lst) = invoke "Subscript" (Stringify lst)
 
-inlineToCustom (Quoted SingleQuote lst) = callFunc "SingleQuoted" (Stringify lst)
+inlineToCustom (SmallCaps lst) = invoke "SmallCaps" (Stringify lst)
 
-inlineToCustom (Quoted DoubleQuote lst) = callFunc "DoubleQuoted" (Stringify lst)
+inlineToCustom (Quoted SingleQuote lst) =
+  invoke "SingleQuoted" (Stringify lst)
 
-inlineToCustom (Cite cs lst) = callFunc "Cite" (Stringify lst) (map Stringify cs)
+inlineToCustom (Quoted DoubleQuote lst) =
+  invoke "DoubleQuoted" (Stringify lst)
+
+inlineToCustom (Cite cs lst) =
+  invoke "Cite" (Stringify lst) (map (Stringify) cs)
 
 inlineToCustom (Code attr str) =
-  callFunc "Code" str (attrToMap attr)
+  invoke "Code" str (attrToMap attr)
 
 inlineToCustom (Math DisplayMath str) =
-  callFunc "DisplayMath" str
+  invoke "DisplayMath" str
 
 inlineToCustom (Math InlineMath str) =
-  callFunc "InlineMath" str
+  invoke "InlineMath" str
 
 inlineToCustom (RawInline format str) =
-  callFunc "RawInline" (Stringify format) str
+  invoke "RawInline" (Stringify format) str
 
-inlineToCustom LineBreak = callFunc "LineBreak"
+inlineToCustom LineBreak = invoke "LineBreak"
 
 inlineToCustom (Link attr txt (src,tit)) =
-  callFunc "Link" (Stringify txt) src tit (attrToMap attr)
+  invoke "Link" (Stringify txt) src tit (attrToMap attr)
 
 inlineToCustom (Image attr alt (src,tit)) =
-  callFunc "Image" (Stringify alt) src tit (attrToMap attr)
+  invoke "Image" (Stringify alt) src tit (attrToMap attr)
 
-inlineToCustom (Note contents) = callFunc "Note" (Stringify contents)
+inlineToCustom (Note contents) = invoke "Note" (Stringify contents)
 
 inlineToCustom (Span attr items) =
-  callFunc "Span" (Stringify items) (attrToMap attr)
+  invoke "Span" (Stringify items) (attrToMap attr)

@@ -1,22 +1,3 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2015 Martin Linnemann <theCodingMarlin@googlemail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Readers.Odt.Arrows.Utils
    Copyright   : Copyright (C) 2015 Martin Linnemann
@@ -40,7 +21,6 @@ with an equivalent return value.
 -- We export everything
 module Text.Pandoc.Readers.Odt.Arrows.Utils where
 
-import Prelude
 import Control.Arrow
 import Control.Monad (join)
 
@@ -100,7 +80,7 @@ liftA  fun a = a >>^ fun
 -- | Duplicate a value to subsequently feed it into different arrows.
 -- Can almost always be replaced with '(&&&)', 'keepingTheValue',
 -- or even '(|||)'.
--- Aequivalent to
+-- Equivalent to
 -- > returnA &&& returnA
 duplicate :: (Arrow a) => a b (b,b)
 duplicate = arr $ join (,)
@@ -114,7 +94,7 @@ infixr 2 >>%
 
 
 -- | Duplicate a value and apply an arrow to the second instance.
--- Aequivalent to
+-- Equivalent to
 -- > \a -> duplicate >>> second a
 -- or
 -- > \a -> returnA &&& a
@@ -201,14 +181,14 @@ a >>?! f = a >>> right f
           => FallibleArrow a x f (b,b')
           -> (b -> b' -> c)
           -> FallibleArrow a x f c
-a >>?% f = a >>?^ (uncurry f)
+a >>?% f = a >>?^ uncurry f
 
 ---
 (^>>?%) :: (ArrowChoice a)
           => (x -> Either f (b,b'))
           -> (b -> b' -> c)
           -> FallibleArrow a x f c
-a ^>>?% f = arr a >>?^ (uncurry f)
+a ^>>?% f = arr a >>?^ uncurry f
 
 ---
 (>>?%?) :: (ArrowChoice a)

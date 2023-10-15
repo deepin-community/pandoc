@@ -261,6 +261,7 @@ Fancy list markers
 ------------------
 
 (2) begins with 2
+
 (3) and now 3
 
     with a continuation
@@ -385,53 +386,23 @@ HTML Blocks
 
 Simple block on one line:
 
-.. raw:: html
+.. container::
 
-   <div>
-
-foo
-
-.. raw:: html
-
-   </div>
+   foo
 
 And nested without indentation:
 
-.. raw:: html
+.. container::
 
-   <div>
+   .. container::
 
-.. raw:: html
+      .. container::
 
-   <div>
+         foo
 
-.. raw:: html
+   .. container::
 
-   <div>
-
-foo
-
-.. raw:: html
-
-   </div>
-
-.. raw:: html
-
-   </div>
-
-.. raw:: html
-
-   <div>
-
-bar
-
-.. raw:: html
-
-   </div>
-
-.. raw:: html
-
-   </div>
+      bar
 
 Interpreted markdown in a table:
 
@@ -477,15 +448,9 @@ And this is **strong**
 
 Here’s a simple block:
 
-.. raw:: html
+.. container::
 
-   <div>
-
-foo
-
-.. raw:: html
-
-   </div>
+   foo
 
 This should be a code block, though:
 
@@ -503,31 +468,13 @@ As should this:
 
 Now, nested:
 
-.. raw:: html
+.. container::
 
-   <div>
+   .. container::
 
-.. raw:: html
+      .. container::
 
-   <div>
-
-.. raw:: html
-
-   <div>
-
-foo
-
-.. raw:: html
-
-   </div>
-
-.. raw:: html
-
-   </div>
-
-.. raw:: html
-
-   </div>
+         foo
 
 This should just be an HTML comment:
 
@@ -633,8 +580,8 @@ Superscripts: a\ :sup:`bc`\ d a\ :sup:`hello` a\ :sup:`hello there`.
 
 Subscripts: H\ :sub:`2`\ O, H\ :sub:`23`\ O, H\ :sub:`many of them`\ O.
 
-These should not be superscripts or subscripts, because of the unescaped
-spaces: a^b c^d, a~b c~d.
+These should not be superscripts or subscripts, because of the unescaped spaces:
+a^b c^d, a~b c~d.
 
 --------------
 
@@ -672,7 +619,6 @@ LaTeX
 -  Here’s some display math:
 
    .. math:: \frac{d}{dx}f(x)=\lim_{h\to 0}\frac{f(x+h)-f(x)}{h}
-
 -  Here’s one that has a line break in it: :math:`\alpha + \omega \times x^2`.
 
 These shouldn’t be math:

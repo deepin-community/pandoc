@@ -1,8 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Txt2Tags
+   Copyright   : © 2014-2022 John MacFarlane,
+                 © 2014 Matthew Pickering
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : John MacFarlane <jgm@berkeley.edu>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the Txt2Tags reader.
+-}
 module Tests.Readers.Txt2Tags (tests) where
 
-import Prelude
 import Data.List (intersperse)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -11,7 +21,6 @@ import Tests.Helpers
 import Text.Pandoc
 import Text.Pandoc.Arbitrary ()
 import Text.Pandoc.Builder
-import Text.Pandoc.Shared (underlineSpan)
 
 t2t :: Text -> Pandoc
 -- t2t = handleError . readTxt2Tags (T2TMeta "date" "mtime" "in" "out") def
@@ -32,7 +41,18 @@ simpleTable' :: Int
              -> [Blocks]
              -> [[Blocks]]
              -> Blocks
-simpleTable' n = table "" (replicate n (AlignCenter, 0.0))
+simpleTable' n = simpleTable'' $ replicate n (AlignCenter, ColWidthDefault)
+
+simpleTable'' :: [ColSpec] -> [Blocks] -> [[Blocks]] -> Blocks
+simpleTable'' spec headers rows
+  = table emptyCaption
+          spec
+          (TableHead nullAttr $ toHeaderRow headers)
+          [TableBody nullAttr 0 [] $ map toRow rows]
+          (TableFoot nullAttr [])
+  where
+    toRow = Row nullAttr . map simpleCell
+    toHeaderRow l = [toRow l | not (null l)]
 
 tests :: [TestTree]
 tests =
@@ -71,12 +91,12 @@ tests =
 
       , "Inline markup is greedy" =:
           "***** ///// _____ ----- ````` \"\"\"\"\" '''''" =?>
-          para (spcSep [strong "*", emph "/", underlineSpan "_"
+          para (spcSep [strong "*", emph "/", underline "_"
                        , strikeout "-", code "`", text "\""
                        , rawInline "html" "'"])
       , "Markup must be greedy" =:
           "**********    //////////    __________    ----------    ``````````   \"\"\"\"\"\"\"\"\"\"   ''''''''''" =?>
-                      para (spcSep [strong "******", emph "//////", underlineSpan "______"
+                      para (spcSep [strong "******", emph "//////", underline "______"
                        , strikeout "------", code "``````", text "\"\"\"\"\"\""
                        , rawInline "html" "''''''"])
       , "Inlines must be glued" =:
@@ -299,14 +319,14 @@ tests =
       , "Ordered List in Bullet List" =:
           ("- Emacs\n" <>
            "  + Org\n") =?>
-          bulletList [ (plain "Emacs") <>
-                       (orderedList [ plain "Org"])
+          bulletList [ plain "Emacs" <>
+                       orderedList [ plain "Org"]
                      ]
 
       , "Bullet List in Ordered List" =:
           ("+ GNU\n" <>
            "   - Freedom\n") =?>
-          orderedList [ (plain "GNU") <> bulletList [ (plain "Freedom") ] ]
+          orderedList [ plain "GNU" <> bulletList [ plain "Freedom" ] ]
 
       , "Definition List" =:
           T.unlines [ ": PLL"
@@ -386,12 +406,15 @@ tests =
                   , "| 1 |    One  |    foo  |"
                   , "| 2 |    Two  | bar  |"
                   ] =?>
-          table "" (zip [AlignCenter, AlignRight, AlignDefault] [0, 0, 0])
-                []
-                [ [ plain "Numbers", plain "Text", plain "More" ]
-                , [ plain "1"      , plain "One" , plain "foo"  ]
-                , [ plain "2"      , plain "Two" , plain "bar"  ]
-                ]
+          simpleTable''
+            (zip
+              [AlignCenter, AlignRight, AlignDefault]
+              [ColWidthDefault, ColWidthDefault, ColWidthDefault])
+            []
+            [ [ plain "Numbers", plain "Text", plain "More" ]
+            , [ plain "1"      , plain "One" , plain "foo"  ]
+            , [ plain "2"      , plain "Two" , plain "bar"  ]
+            ]
 
       , "Pipe within text doesn't start a table" =:
           "Ceci n'est pas une | pipe " =?>
@@ -403,11 +426,14 @@ tests =
                   , "| 1 | One  | foo  |"
                   , "| 2 "
                   ] =?>
-          table "" (zip [AlignCenter, AlignLeft, AlignLeft] [0, 0, 0])
-                [ plain "Numbers", plain "Text" , plain mempty ]
-                [ [ plain "1"      , plain "One"  , plain "foo"  ]
-                , [ plain "2"      , plain mempty , plain mempty  ]
-                ]
+          simpleTable''
+            (zip
+              [AlignCenter, AlignLeft, AlignLeft]
+              [ColWidthDefault, ColWidthDefault, ColWidthDefault])
+            [ plain "Numbers", plain "Text" , plain mempty ]
+            [ [ plain "1"      , plain "One"  , plain "foo"  ]
+            , [ plain "2"      , plain mempty , plain mempty  ]
+            ]
 
       ]
 

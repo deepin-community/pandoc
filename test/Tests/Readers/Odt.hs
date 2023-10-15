@@ -1,7 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Odt
+   Copyright   : © 2015-2022 John MacFarlane
+                   2015 Martin Linnemann
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : John MacFarlane <jgm@berkeley.edu>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the ODT reader.
+-}
 module Tests.Readers.Odt (tests) where
 
-import Prelude
 import Control.Monad (liftM)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as B
@@ -49,7 +60,7 @@ instance ToString NoNormPandoc where
    where s = case d of
                   NoNormPandoc (Pandoc (Meta m) _)
                     | M.null m  -> Nothing
-                    | otherwise -> Just "" -- need this for Meta output
+                    | otherwise -> Just mempty -- need this for Meta output
 
 instance ToPandoc NoNormPandoc where
   toPandoc = unNoNorm
@@ -140,6 +151,7 @@ namesOfTestsComparingToMarkdown  = [ "bold"
                                    , "endnote"
                                    , "externalLink"
                                    , "footnote"
+                                   , "formula"
                                    , "headers"
 --                                 , "horizontalRule"
                                    , "italic"
@@ -159,14 +171,17 @@ namesOfTestsComparingToNative   = [ "blockquote"
                                   , "orderedListMixed"
                                   , "orderedListRoman"
                                   , "orderedListSimple"
+                                  , "orderedListHeader"
                                   , "referenceToChapter"
                                   , "referenceToListItem"
                                   , "referenceToText"
                                   , "simpleTable"
                                   , "simpleTableWithCaption"
+                                  , "tab"
 --                                , "table"
                                   , "textMixedStyles"
                                   , "tableWithContents"
                                   , "unicode"
                                   , "unorderedList"
+                                  , "unorderedListHeader"
                                   ]

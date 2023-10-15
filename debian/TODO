@@ -1,2 +1,18 @@
   * Avoid privacy breach:
     + slidy output links to <https://www.w3.org/Talks/Tools/Slidy2>.
+  * upgrade to 2.18
+    when needed Haskell libraries are in Debian:
+    + citeproc              >= 0.7      && < 0.8
+    + doclayout             >= 0.4      && < 0.5
+    + hslua-module-doclayout>= 1.0.4    && < 1.1
+    + texmath               >= 0.12.5   && < 0.12.6
+  * upgrade to 2.19
+    when needed Haskell libraries are in Debian:
+    + citeproc              >= 0.8.0.1  && < 0.9
+    + gridtables            >= 0.0.2    && < 0.1
+    + hslua-aeson           >= 2.2.1    && < 2.3
+    + pandoc-lua-marshal    >= 0.1.7    && < 0.2
+    + texmath               >= 0.12.5.1 && < 0.12.6
+  * use Lua 5.4 (not Lua 5.3)
+    when needed Haskell libraries are in Debian:
+    + hslua                 >= 2.2.1    && < 2.3

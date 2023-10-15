@@ -1,27 +1,13 @@
 #!/usr/bin/make -f
 
-# Copyright © 2006-2010 John MacFarlane <jgm@berkeley.edu>
-# Copyright © 2007-2008 Recai Oktaş <roktas@debian.org>
-# Copyright © 2008-2018 Jonas Smedegaard <dr@jones.dk>
-# Description: Main Debian packaging script for Pandoc
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
-#
-# This program is distributed in the hope that it will be useful, but
-# WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-# General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+DEB_ENABLE_TESTS = yes
 
 include /usr/share/cdbs/1/rules/debhelper.mk
 -include /usr/share/cdbs/1/class/hlibrary.mk
 
 pkg = $(DEB_SOURCE_PACKAGE)
+
+ABI = $(shell dpkg-query --showformat='$${source:Version}' --show libghc-pandoc-types-dev)
 
 # helper macros for GHC dependencies, e.g.: foo bar,dev,prof doc,>=,1.2,<<,1.3 baz
 expand-or-strip-ghc-dep = $(foreach expandsuffix,$1,\
@@ -40,67 +26,132 @@ expand-ghc-deps = $(foreach dep,$(sort $3),$(call expand-or-strip-ghc-dep,\
  $(word 5,$(subst $(comma),$(space),$(dep))))))
 
 # Haskell dependencies for any build from pandoc.cabal
-ghc-deps += syb,<<,0.8
-ghc-deps += unordered-containers,<<,0.3
-ghc-deps += parsec3,<<,3.2
-ghc-deps += mtl,>=,2.2,<<,2.3
-ghc-deps += exceptions,>=,0.8,<<,0.11
-ghc-deps += text,<<,1.3
-ghc-deps += safe,<<,0.4
-ghc-deps += zip-archive,<<,0.4
-ghc-deps += http,<<,1:4000.4
-ghc-deps += texmath,>=,0.10,<<,0.12
-ghc-deps += xml,<<,1.4
-ghc-deps += split,<<,0.3
-ghc-deps += random,<<,1.2
-ghc-deps += pandoc-types,>=,1.17.4.2,<<,1.18
-ghc-deps += aeson,<<,1.4
-ghc-deps += aeson-pretty,>=,0.8.5,<<,0.9
-ghc-deps += tagsoup,>=,0.14.6,<<,0.15
-ghc-deps += base64-bytestring,<<,1.1
-ghc-deps += zlib,<<,0.7
-ghc-deps += skylighting,>=,0.5.1,<<,0.8
-ghc-deps += data-default,<<,0.8
-ghc-deps += temporary,<<,1.4
-ghc-deps += blaze-html,>=,0.9,<<,0.10
-ghc-deps += blaze-markup,>=,0.8,<<,0.9
-ghc-deps += yaml,<<,0.9
-ghc-deps += scientific,<<,0.4
-ghc-deps += vector,<<,0.13
-ghc-deps += hslua,>=,0.9.5,<<,0.9.6
-ghc-deps += hslua-module-text,<<,0.2
+ghc-deps += glob,<<,0.11
+ghc-deps += juicypixels,<<,3.4
 ghc-deps += sha,<<,1.7
-ghc-deps += haddock-library,<<,1.6
-ghc-deps += juicypixels,<<,3.3
-ghc-deps += glob,<<,0.10
-ghc-deps += cmark-gfm,<<,0.2
-ghc-deps += doctemplates,>=,0.2.1,<<,0.3
-ghc-deps += http-client,>=,0.4.30,,<<,0.6
-ghc-deps += http-client-tls,>=,0.2.4,<<,0.4
+ghc-deps += aeson,<<,2.1
+ghc-deps += aeson-pretty,<<,0.9
+ghc-deps += attoparsec,<<,0.15
+ghc-deps += base64-bytestring,<<,1.3
+ghc-deps += blaze-html,<<,0.10
+ghc-deps += blaze-markup,<<,0.9
+ghc-deps += case-insensitive,<<,1.3
+ghc-deps += citeproc,<<,0.7
+ghc-deps += commonmark,<<,0.3
+ghc-deps += commonmark-extensions,<<,0.3
+ghc-deps += commonmark-pandoc,<<,0.3
+ghc-deps += connection,>=,0.3.1
+ghc-deps += data-default,<<,0.8
+ghc-deps += doclayout,>=,0.3.1.1,<<,0.4
+ghc-deps += doctemplates,>=,0.10,<<,0.11
+ghc-deps += emojis,<<,0.2
+ghc-deps += exceptions,<<,0.11
+ghc-deps += file-embed,<<,0.1
+ghc-deps += haddock-library,>=,1.10,<<,1.11
+ghc-deps += hslua,>=,2.1,<<,2.2
+ghc-deps += hslua-aeson,>=,2.1,<<,2.2
+ghc-deps += hslua-marshalling,>=,2.1,<<,2.2
+ghc-deps += hslua-module-path,<<,1.1
+ghc-deps += hslua-module-system,>=,1,<<,1.1
+ghc-deps += hslua-module-text,>=,1,<<,1.1
+ghc-deps += hslua-module-version,<<,1.1
+ghc-deps += http-client,<<,0.8
+ghc-deps += http-client-tls,<<,0.4
 ghc-deps += http-types,<<,0.13
-ghc-deps += case-insensitive,>=,1.2,<<,1.3
-ghc-deps += network,>=,2.6
-ghc-deps += network-uri,<<,2.7
+ghc-deps += ipynb,>=,0.2,<<,0.3
+ghc-deps += jira-wiki-markup,>=,1.4,<<,1.5
+ghc-deps += lpeg,<<,1.1
+ghc-deps += network
+ghc-deps += network-uri,<<,2.8
+ghc-deps += pandoc-lua-marshal,<<,0.2
+ghc-deps += pandoc-types,>=,1.22.1,<<,1.23
+ghc-deps += pretty-show,>=,1.10,<<,1.11
+ghc-deps += random,<<,1.3
+ghc-deps += safe,<<,0.4
+ghc-deps += scientific,<<,0.4
+ghc-deps += skylighting,>=,0.12.3.1,<<,0.13
+ghc-deps += skylighting-core,>=,0.12.3.1,<<,0.13
+ghc-deps += split,<<,0.3
+ghc-deps += syb,<<,0.8
+ghc-deps += tagsoup,<<,0.15
+ghc-deps += temporary,<<,1.4
+ghc-deps += texmath,>=,0.12.4,<<,0.12.5
+ghc-deps += text-conversions,<<,0.4
+ghc-deps += unicode-collation,<<,0.2
+ghc-deps += unicode-transforms,<<,0.5
+ghc-deps += xml,<<,1.4
+ghc-deps += xml-conduit,>=,1.9.1.1,<<,1.10
+ghc-deps += yaml,>=,0.11,<<,0.12
+ghc-deps += zip-archive,<<,0.5
+ghc-deps += zlib,<<,0.7
 
 # Haskell dependencies for testsuite from pandoc.cabal
-ghc-deps-test += diff,<<,0.4
-ghc-deps-test += tasty,>=,0.11,<<,1.2
+ghc-deps-test += diff,<<,0.5
+ghc-deps-test += tasty,<<,1.5
+ghc-deps-test += tasty-golden,<<,2.4
 ghc-deps-test += tasty-hunit,<<,0.11
+ghc-deps-test += tasty-lua,>=,1,<<,1.1
 ghc-deps-test += tasty-quickcheck,<<,0.11
-ghc-deps-test += tasty-golden,>=,2.3,<<,2.4
-ghc-deps-test += quickcheck2,<<,2.12
-ghc-deps-test += executable-path,<<,0.1
 
 # Haskell dependencies (maybe) needed for documentation
 # TODO: actually use these (not maintain Build-depends-indep by hand)
+ghc-deps-doc += ansi-terminal
+ghc-deps-doc += asn1-encoding
+ghc-deps-doc += asn1-parse
+ghc-deps-doc += asn1-types
+ghc-deps-doc += async
+ghc-deps-doc += base16-bytestring
+ghc-deps-doc += base-compat
+ghc-deps-doc += base-compat-batteries
+ghc-deps-doc += basement
+ghc-deps-doc += base-orphans
 ghc-deps-doc += blaze-builder
+ghc-deps-doc += cereal
+ghc-deps-doc += colour
+ghc-deps-doc += connection
+ghc-deps-doc += cookie
+ghc-deps-doc += cryptonite
+ghc-deps-doc += data-default-class
+ghc-deps-doc += data-default-instances-containers
+ghc-deps-doc += data-default-instances-dlist
+ghc-deps-doc += data-default-instances-old-locale
 ghc-deps-doc += digest
 ghc-deps-doc += dlist
+ghc-deps-doc += errors
+ghc-deps-doc += hashable
+ghc-deps-doc += hourglass
 ghc-deps-doc += hs-bibutils
+ghc-deps-doc += hsyaml
+ghc-deps-doc += hxt
+ghc-deps-doc += hxt-charproperties
+ghc-deps-doc += hxt-regex-xmlschema
+ghc-deps-doc += hxt-unicode
+ghc-deps-doc += integer-logarithms
+ghc-deps-doc += memory
+ghc-deps-doc += mime-types
+ghc-deps-doc += old-locale
 ghc-deps-doc += pcre-light
+ghc-deps-doc += pem
+ghc-deps-doc += primitive
+ghc-deps-doc += quickcheck2
+ghc-deps-doc += regex-base
 ghc-deps-doc += rts
+ghc-deps-doc += socks
+ghc-deps-doc += splitmix
+ghc-deps-doc += streaming-commons
+ghc-deps-doc += tagged
+ghc-deps-doc += th-abstraction
+ghc-deps-doc += time-compat
+ghc-deps-doc += tls
 ghc-deps-doc += transformers
+ghc-deps-doc += transformers-compat
+ghc-deps-doc += unicode-transforms
 ghc-deps-doc += utf8-string
+ghc-deps-doc += uuid-types
+ghc-deps-doc += x509
+ghc-deps-doc += x509-store
+ghc-deps-doc += x509-system
+ghc-deps-doc += x509-validation
 
 # Needed by upstream build process
 CDBS_BUILD_DEPENDS +=, ghc, ghc-prof, alex, happy
@@ -120,9 +171,10 @@ CDBS_BUILD_DEPENDS +=, haskell-devscripts
 # TODO: suggest slide show Javascript libraries when in Debian
 CDBS_SUGGESTS_$(pkg) = texlive-latex-recommended, texlive-xetex, texlive-luatex
 CDBS_SUGGESTS_$(pkg) +=, pandoc-citeproc, texlive-latex-extra, context
-CDBS_SUGGESTS_$(pkg) +=, wkhtmltopdf, librsvg2-bin, groff, ghc, nodejs,
+CDBS_SUGGESTS_$(pkg) +=, wkhtmltopdf, librsvg2-bin, groff, ghc, nodejs
 CDBS_SUGGESTS_$(pkg) +=, php, perl, python, ruby, r-base-core
-CDBS_SUGGESTS_$(pkg) +=, libjs-mathjax, node-katex
+CDBS_SUGGESTS_$(pkg) +=, libjs-mathjax, libjs-katex
+CDBS_SUGGESTS_$(pkg) +=, citation-style-language-styles
 
 # Fix exception thrown building documentation:
 # haddock: internal error: <stdout>: commitBuffer: invalid argument (invalid character)
@@ -134,11 +186,15 @@ DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(wildcard /usr/lib/ghc-$(GHC_VERSION)/libH
 # Disable timer to help build on slow arches like hppa
 DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="+RTS -V0 -RTS"
 
-ifneq (,$(filter $(DEB_BUILD_ARCH),mips mipsel))
-    DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-optc--param -optcggc-min-expand=10"
+# Reduce compile-time memory utilization on low-memory architectures
+ifneq (,$(filter $(DEB_BUILD_ARCH),armel armhf hppa mips mipsel))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-optc--param -optcggc-min-expand=10 -O0"
 endif
 
-DEB_ENABLE_TESTS = yes
+ifneq (,$(filter $(DEB_HOST_ARCH_CPU), i386))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-O0"
+endif
+
 DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(filter nocheck,$(DEB_BUILD_OPTIONS)),,-ftests)
 
 DEB_INSTALL_DOCS_ALL += README.md
@@ -153,3 +209,5 @@ binary-install/$(pkg)::
 	dh_bash-completion
 clean::
 	rm -f debian/pandoc.bash-completion
+
+DEB_DH_GENCONTROL_ARGS_$(pkg) = -- -V"pandoc:Abi=$(ABI)"

@@ -1,28 +1,10 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-
-Copyright (C) 2017-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings          #-}
 {- |
    Module      : Text.Pandoc.Translations
-   Copyright   : Copyright (C) 2017-2018 John MacFarlane
+   Copyright   : Copyright (C) 2017-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -47,69 +29,70 @@ module Text.Pandoc.Translations (
                          , readTranslations
                          )
 where
-import Prelude
-import Data.Aeson.Types (typeMismatch)
-import qualified Data.HashMap.Strict as HM
+import Data.Aeson.Types (Value(..), FromJSON(..))
+import qualified Data.Aeson.Types as Aeson
 import qualified Data.Map as M
-import Data.Text as T
-import Data.Yaml as Yaml
+import qualified Data.Text as T
+import qualified Data.Yaml as Yaml
 import GHC.Generics (Generic)
 import Text.Pandoc.Shared (safeRead)
 import qualified Text.Pandoc.UTF8 as UTF8
+import Data.Yaml (prettyPrintParseException)
 
 data Term =
-    Preface
-  | References
-  | Abstract
-  | Bibliography
-  | Chapter
+    Abstract
   | Appendix
+  | Bibliography
+  | Cc
+  | Chapter
   | Contents
+  | Encl
+  | Figure
+  | Glossary
+  | Index
+  | Listing
   | ListOfFigures
   | ListOfTables
-  | Index
-  | Figure
-  | Table
-  | Part
   | Page
+  | Part
+  | Preface
+  | Proof
+  | References
   | See
   | SeeAlso
-  | Encl
-  | Cc
+  | Table
   | To
-  | Proof
-  | Glossary
-  | Listing
   deriving (Show, Eq, Ord, Generic, Enum, Read)
 
-newtype Translations = Translations (M.Map Term String)
+newtype Translations = Translations (M.Map Term T.Text)
         deriving (Show, Generic, Semigroup, Monoid)
 
 instance FromJSON Term where
-  parseJSON (String t) = case safeRead (T.unpack t) of
+  parseJSON (String t) = case safeRead t of
                                Just t' -> pure t'
-                               Nothing -> fail $ "Invalid Term name " ++
+                               Nothing -> Prelude.fail $ "Invalid Term name " ++
                                                  show t
-  parseJSON invalid = typeMismatch "Term" invalid
+  parseJSON invalid = Aeson.typeMismatch "Term" invalid
 
 instance FromJSON Translations where
-  parseJSON (Object hm) = do
-    xs <- mapM addItem (HM.toList hm)
+  parseJSON o@(Object{}) = do
+    xs <- parseJSON o >>= mapM addItem . M.toList
     return $ Translations (M.fromList xs)
     where addItem (k,v) =
-            case safeRead (T.unpack k) of
-                 Nothing -> fail $ "Invalid Term name " ++ show k
+            case safeRead k of
+                 Nothing -> Prelude.fail $ "Invalid Term name " ++ show k
                  Just t  ->
                    case v of
-                        (String s) -> return (t, T.unpack $ T.strip s)
-                        inv        -> typeMismatch "String" inv
-  parseJSON invalid = typeMismatch "Translations" invalid
+                        (String s) -> return (t, T.strip s)
+                        inv        -> Aeson.typeMismatch "String" inv
+  parseJSON invalid = Aeson.typeMismatch "Translations" invalid
 
-lookupTerm :: Term -> Translations -> Maybe String
+lookupTerm :: Term -> Translations -> Maybe T.Text
 lookupTerm t (Translations tm) = M.lookup t tm
 
-readTranslations :: String -> Either String Translations
+readTranslations :: T.Text -> Either T.Text Translations
 readTranslations s =
-  case Yaml.decodeEither' $ UTF8.fromString s of
-       Left err' -> Left $ prettyPrintParseException err'
-       Right t   -> Right t
+  case Yaml.decodeAllEither' $ UTF8.fromText s of
+       Left err' -> Left $ T.pack $ prettyPrintParseException err'
+       Right (t:_)     -> Right t
+       Right []        -> Left "empty YAML document"

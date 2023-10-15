@@ -1,8 +1,17 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Inline.Citation
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Test parsing of citations in org input.
+-}
 module Tests.Readers.Org.Inline.Citation (tests) where
 
-import Prelude
 import Test.Tasty (TestTree, testGroup)
 import Tests.Helpers ((=?>))
 import Tests.Readers.Org.Shared ((=:))
@@ -10,9 +19,9 @@ import Text.Pandoc.Builder
 
 tests :: [TestTree]
 tests =
-  [ testGroup "Markdown-style citations"
+  [ testGroup "Org-cite citations"
     [ "Citation" =:
-      "[@nonexistent]" =?>
+      "[cite:@nonexistent]" =?>
       let citation = Citation
                      { citationId = "nonexistent"
                      , citationPrefix = []
@@ -20,10 +29,10 @@ tests =
                      , citationMode = NormalCitation
                      , citationNoteNum = 0
                      , citationHash = 0}
-      in (para $ cite [citation] "[@nonexistent]")
+      in (para $ cite [citation] "[cite:@nonexistent]")
 
     , "Citation containing text" =:
-      "[see @item1 p. 34-35]" =?>
+      "[cite:see @item1 p. 34-35]" =?>
       let citation = Citation
                      { citationId = "item1"
                      , citationPrefix = [Str "see"]
@@ -31,7 +40,37 @@ tests =
                      , citationMode = NormalCitation
                      , citationNoteNum = 0
                      , citationHash = 0}
-      in (para $ cite [citation] "[see @item1 p. 34-35]")
+      in (para $ cite [citation] "[cite:see @item1 p. 34-35]")
+
+    , "Author-in-text citation with locator and suffix" =:
+      "[cite/t:see @item1 p. 34-35 and *passim*; @item2]" =?>
+      let citations =
+            [ Citation
+                { citationId = "item1"
+                , citationPrefix = [ Str "see" ]
+                , citationSuffix =
+                    [ Str "p."
+                    , Space
+                    , Str "34-35"
+                    , Space
+                    , Str "and"
+                    , Space
+                    , Strong [ Str "passim" ]
+                    ]
+                , citationMode = AuthorInText
+                , citationNoteNum = 0
+                , citationHash = 0
+                }
+            , Citation
+                { citationId = "item2"
+                , citationPrefix = []
+                , citationSuffix = []
+                , citationMode = NormalCitation
+                , citationNoteNum = 0
+                , citationHash = 0
+                }
+            ]
+      in (para $ cite citations "[cite/t:see @item1 p. 34-35 and *passim*; @item2]")
     ]
 
   , testGroup "org-ref citations"
@@ -107,6 +146,46 @@ tests =
                      }
       in (para $ cite [citation] "citep:pandoc")
 
+    , "multiple simple citations" =:
+      "citep:picard,riker" =?>
+      let picard = Citation
+                 { citationId = "picard"
+                 , citationPrefix = mempty
+                 , citationSuffix = mempty
+                 , citationMode = NormalCitation
+                 , citationNoteNum = 0
+                 , citationHash = 0
+                 }
+          riker  = Citation
+                 { citationId = "riker"
+                 , citationPrefix = mempty
+                 , citationSuffix = mempty
+                 , citationMode = NormalCitation
+                 , citationNoteNum = 0
+                 , citationHash = 0
+                 }
+      in (para $ cite [picard,riker] "citep:picard,riker")
+
+    , "multiple simple citations succeeded by comma" =:
+      "citep:picard,riker," =?>
+      let picard = Citation
+                 { citationId = "picard"
+                 , citationPrefix = mempty
+                 , citationSuffix = mempty
+                 , citationMode = NormalCitation
+                 , citationNoteNum = 0
+                 , citationHash = 0
+                 }
+          riker  = Citation
+                 { citationId = "riker"
+                 , citationPrefix = mempty
+                 , citationSuffix = mempty
+                 , citationMode = NormalCitation
+                 , citationNoteNum = 0
+                 , citationHash = 0
+                 }
+      in (para $ cite [picard,riker] "citep:picard,riker" <> str ",")
+
     , "extended citation" =:
       "[[citep:Dominik201408][See page 20::, for example]]" =?>
       let citation = Citation
@@ -118,53 +197,6 @@ tests =
                      , citationHash = 0
                      }
       in (para $ cite [citation] "[[citep:Dominik201408][See page 20::, for example]]")
-    ]
-
-  , testGroup "Berkeley-style citations" $
-    let pandocCite = Citation
-          { citationId = "Pandoc"
-          , citationPrefix = mempty
-          , citationSuffix = mempty
-          , citationMode = NormalCitation
-          , citationNoteNum = 0
-          , citationHash = 0
-          }
-        pandocInText = pandocCite { citationMode = AuthorInText }
-        dominikCite = Citation
-          { citationId = "Dominik201408"
-          , citationPrefix = mempty
-          , citationSuffix = mempty
-          , citationMode = NormalCitation
-          , citationNoteNum = 0
-          , citationHash = 0
-          }
-        dominikInText = dominikCite { citationMode = AuthorInText }
-    in
-      [ "Berkeley-style in-text citation" =:
-        "See @Dominik201408." =?>
-        para ("See "
-               <> cite [dominikInText] "@Dominik201408"
-               <> ".")
-
-      , "Berkeley-style parenthetical citation list" =:
-        "[(cite): see; @Dominik201408;also @Pandoc; and others]" =?>
-        let pandocCite'  = pandocCite {
-                             citationPrefix = toList "also"
-                           , citationSuffix = toList "and others"
-                           }
-            dominikCite' = dominikCite {
-                             citationPrefix = toList "see"
-                           }
-        in (para $ cite [dominikCite', pandocCite'] "")
-
-      , "Berkeley-style plain citation list" =:
-        "[cite: See; @Dominik201408; and @Pandoc; and others]" =?>
-        let pandocCite' = pandocInText { citationPrefix = toList "and" }
-        in (para $ "See "
-             <> cite [dominikInText] ""
-             <> "," <> space
-             <> cite [pandocCite'] ""
-             <> "," <> space <> "and others")
     ]
 
   , "LaTeX citation" =:

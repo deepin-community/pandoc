@@ -1,8 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Creole
+   Copyright   : © 2017 Sascha Wilde
+                   2017-2022 John MacFarlane
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Sascha Wilde <wilde@sha-bang.de>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the creole reader.
+-}
 module Tests.Readers.Creole (tests) where
 
-import Prelude
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty

@@ -1,27 +1,9 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-
-Copyright (C) 2014-2018 Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings     #-}
 {- |
    Module      : Text.Pandoc.Readers.Org.ParserState
-   Copyright   : Copyright (C) 2014-2018 Albert Krewinkel
+   Copyright   : Copyright (C) 2014-2022 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
    Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
@@ -33,6 +15,7 @@ module Text.Pandoc.Readers.Org.ParserState
   , defaultOrgParserState
   , OrgParserLocal (..)
   , OrgNoteRecord
+  , Tag(..)
   , HasReaderOptions (..)
   , HasQuoteContext (..)
   , HasMacros (..)
@@ -52,10 +35,10 @@ module Text.Pandoc.Readers.Org.ParserState
   , returnF
   , ExportSettings (..)
   , ArchivedTreesOption (..)
+  , TeXExport (..)
   , optionsToParserState
   ) where
 
-import Prelude
 import Control.Monad.Reader (ReaderT, asks, local)
 
 import Data.Default (Default (..))
@@ -63,11 +46,11 @@ import qualified Data.Map as M
 import qualified Data.Set as Set
 import Data.Text (Text)
 
-import Text.Pandoc.Builder (Blocks, Inlines)
+import Text.Pandoc.Builder (Blocks)
 import Text.Pandoc.Definition (Meta (..), nullMeta)
 import Text.Pandoc.Logging
 import Text.Pandoc.Options (ReaderOptions (..))
-import Text.Pandoc.Parsing (Future, HasHeaderMap (..), HasIdentifierList (..),
+import Text.Pandoc.Parsing (Future, HasIdentifierList (..),
                             HasIncludeFiles (..), HasLastStrPosition (..),
                             HasLogMessages (..), HasMacros (..),
                             HasQuoteContext (..), HasReaderOptions (..),
@@ -80,14 +63,17 @@ import Text.Pandoc.Readers.LaTeX.Types (Macro)
 type F = Future OrgParserState
 
 -- | An inline note / footnote containing the note key and its (inline) value.
-type OrgNoteRecord = (String, F Blocks)
+type OrgNoteRecord = (Text, F Blocks)
 -- | Table of footnotes
 type OrgNoteTable = [OrgNoteRecord]
 -- | Map of functions for link transformations.  The map key is refers to the
 -- link-type, the corresponding function transforms the given link string.
-type OrgLinkFormatters = M.Map String (String -> String)
+type OrgLinkFormatters = M.Map Text (Text -> Text)
 -- | Macro expander function
-type MacroExpander = [String] -> String
+type MacroExpander = [Text] -> Text
+-- | Tag
+newtype Tag = Tag { fromTag :: Text }
+  deriving (Show, Eq, Ord)
 
 -- | The states in which a todo item can be
 data TodoState = Todo | Done
@@ -96,7 +82,7 @@ data TodoState = Todo | Done
 -- | A ToDo keyword like @TODO@ or @DONE@.
 data TodoMarker = TodoMarker
   { todoMarkerState :: TodoState
-  , todoMarkerName  :: String
+  , todoMarkerName  :: Text
   }
   deriving (Show, Eq)
 
@@ -105,7 +91,7 @@ type TodoSequence = [TodoMarker]
 
 -- | Org-mode parser state
 data OrgParserState = OrgParserState
-  { orgStateAnchorIds            :: [String]
+  { orgStateAnchorIds            :: [Text]
   , orgStateEmphasisCharStack    :: [Char]
   , orgStateEmphasisPreChars     :: [Char] -- ^ Chars allowed to occur before
                                            -- emphasis; spaces and newlines are
@@ -113,26 +99,30 @@ data OrgParserState = OrgParserState
                                            -- specified here.
   , orgStateEmphasisPostChars    :: [Char] -- ^ Chars allowed at after emphasis
   , orgStateEmphasisNewlines     :: Maybe Int
+  , orgStateExcludeTags          :: Set.Set Tag
+  , orgStateExcludeTagsChanged   :: Bool
   , orgStateExportSettings       :: ExportSettings
-  , orgStateHeaderMap            :: M.Map Inlines String
-  , orgStateIdentifiers          :: Set.Set String
-  , orgStateIncludeFiles         :: [String]
+  , orgStateIdentifiers          :: Set.Set Text
+  , orgStateIncludeFiles         :: [Text]
   , orgStateLastForbiddenCharPos :: Maybe SourcePos
   , orgStateLastPreCharPos       :: Maybe SourcePos
   , orgStateLastStrPos           :: Maybe SourcePos
   , orgStateLinkFormatters       :: OrgLinkFormatters
-  , orgStateMacros               :: M.Map String MacroExpander
+  , orgStateMacros               :: M.Map Text MacroExpander
   , orgStateMacroDepth           :: Int
   , orgStateMeta                 :: F Meta
   , orgStateNotes'               :: OrgNoteTable
   , orgStateOptions              :: ReaderOptions
   , orgStateParserContext        :: ParserContext
+  , orgStateSelectTags           :: Set.Set Tag
+  , orgStateSelectTagsChanged    :: Bool
   , orgStateTodoSequences        :: [TodoSequence]
+  , orgStateTrimLeadBlkIndent    :: Bool
   , orgLogMessages               :: [LogMessage]
   , orgMacros                    :: M.Map Text Macro
   }
 
-data OrgParserLocal = OrgParserLocal
+newtype OrgParserLocal = OrgParserLocal
   { orgLocalQuoteContext :: QuoteContext
   }
 
@@ -144,7 +134,7 @@ instance HasReaderOptions OrgParserState where
 
 instance HasLastStrPosition OrgParserState where
   getLastStrPos = orgStateLastStrPos
-  setLastStrPos pos st = st{ orgStateLastStrPos = Just pos }
+  setLastStrPos pos st = st{ orgStateLastStrPos = pos }
 
 instance Monad m => HasQuoteContext st (ReaderT OrgParserLocal m) where
   getQuoteContext = asks orgLocalQuoteContext
@@ -153,10 +143,6 @@ instance Monad m => HasQuoteContext st (ReaderT OrgParserLocal m) where
 instance HasIdentifierList OrgParserState where
   extractIdentifierList = orgStateIdentifiers
   updateIdentifierList f s = s{ orgStateIdentifiers = f (orgStateIdentifiers s) }
-
-instance HasHeaderMap OrgParserState where
-  extractHeaderMap = orgStateHeaderMap
-  updateHeaderMap  f s = s{ orgStateHeaderMap = f (orgStateHeaderMap s) }
 
 instance HasLogMessages OrgParserState where
   addLogMessage msg st = st{ orgLogMessages = msg : orgLogMessages st }
@@ -183,7 +169,8 @@ defaultOrgParserState = OrgParserState
   , orgStateEmphasisCharStack = []
   , orgStateEmphasisNewlines = Nothing
   , orgStateExportSettings = def
-  , orgStateHeaderMap = M.empty
+  , orgStateExcludeTags = Set.singleton $ Tag "noexport"
+  , orgStateExcludeTagsChanged = False
   , orgStateIdentifiers = Set.empty
   , orgStateIncludeFiles = []
   , orgStateLastForbiddenCharPos = Nothing
@@ -196,6 +183,9 @@ defaultOrgParserState = OrgParserState
   , orgStateNotes' = []
   , orgStateOptions = def
   , orgStateParserContext = NullState
+  , orgStateSelectTags = Set.singleton $ Tag "export"
+  , orgStateSelectTagsChanged = False
+  , orgStateTrimLeadBlkIndent = True
   , orgStateTodoSequences = []
   , orgLogMessages = []
   , orgMacros = M.empty
@@ -222,10 +212,10 @@ activeTodoSequences st =
 activeTodoMarkers :: OrgParserState -> TodoSequence
 activeTodoMarkers = concat . activeTodoSequences
 
-lookupMacro :: String -> OrgParserState -> Maybe MacroExpander
+lookupMacro :: Text -> OrgParserState -> Maybe MacroExpander
 lookupMacro macroName = M.lookup macroName . orgStateMacros
 
-registerMacro :: (String, MacroExpander) -> OrgParserState -> OrgParserState
+registerMacro :: (Text, MacroExpander) -> OrgParserState -> OrgParserState
 registerMacro (name, expander) st =
   let curMacros = orgStateMacros st
   in st{ orgStateMacros = M.insert name expander curMacros }
@@ -242,11 +232,18 @@ data ArchivedTreesOption =
   | ArchivedTreesNoExport     -- ^ Exclude archived trees from exporting
   | ArchivedTreesHeadlineOnly -- ^ Export only the headline, discard the contents
 
+-- | Options for the handling of LaTeX environments and fragments.
+-- Represents allowed values of Emacs variable @org-export-with-latex@.
+data TeXExport
+  = TeXExport                 -- ^ Include raw TeX in the output
+  | TeXIgnore                 -- ^ Ignore raw TeX
+  | TeXVerbatim               -- ^ Keep everything in verbatim
+
 -- | Export settings <http://orgmode.org/manual/Export-settings.html>
 -- These settings can be changed via OPTIONS statements.
 data ExportSettings = ExportSettings
   { exportArchivedTrees    :: ArchivedTreesOption -- ^ How to treat archived trees
-  , exportDrawers          :: Either [String] [String]
+  , exportDrawers          :: Either [Text] [Text]
   -- ^ Specify drawer names which should be exported.  @Left@ names are
   -- explicitly excluded from the resulting output while @Right@ means that
   -- only the listed drawer names should be included.
@@ -260,7 +257,12 @@ data ExportSettings = ExportSettings
   , exportWithAuthor       :: Bool -- ^ Include author in final meta-data
   , exportWithCreator      :: Bool -- ^ Include creator in final meta-data
   , exportWithEmail        :: Bool -- ^ Include email in final meta-data
+  , exportWithEntities     :: Bool -- ^ Include MathML-like entities
+  , exportWithFootnotes    :: Bool -- ^ Include footnotes
+  , exportWithLatex        :: TeXExport -- ^ Handling of raw TeX commands
+  , exportWithPlanning     :: Bool -- ^ Keep planning info after headlines
   , exportWithTags         :: Bool -- ^ Keep tags as part of headlines
+  , exportWithTables       :: Bool -- ^ Include tables
   , exportWithTodoKeywords :: Bool -- ^ Keep TODO keywords in headers
   }
 
@@ -280,6 +282,11 @@ defaultExportSettings = ExportSettings
   , exportWithAuthor = True
   , exportWithCreator = True
   , exportWithEmail = True
+  , exportWithEntities = True
+  , exportWithFootnotes = True
+  , exportWithLatex = TeXExport
+  , exportWithPlanning = False
   , exportWithTags = True
+  , exportWithTables = True
   , exportWithTodoKeywords = True
   }

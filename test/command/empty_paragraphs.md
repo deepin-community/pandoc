@@ -2,34 +2,32 @@
 % pandoc -f native -t docx -o - | pandoc -f docx -t native
 [Para [Str "hi"], Para [], Para [], Para [Str "lo"]]
 ^D
-[Para [Str "hi"]
-,Para [Str "lo"]]
+[ Para [ Str "hi" ] , Para [ Str "lo" ] ]
 ```
 
 ```
 % pandoc -f native -t docx+empty_paragraphs -o - | pandoc -f docx -t native
 [Para [Str "hi"], Para [], Para [], Para [Str "lo"]]
 ^D
-[Para [Str "hi"]
-,Para [Str "lo"]]
+[ Para [ Str "hi" ] , Para [ Str "lo" ] ]
 ```
 
 ```
 % pandoc -f native -t docx -o - | pandoc -f docx+empty_paragraphs -t native
 [Para [Str "hi"], Para [], Para [], Para [Str "lo"]]
 ^D
-[Para [Str "hi"]
-,Para [Str "lo"]]
+[ Para [ Str "hi" ] , Para [ Str "lo" ] ]
 ```
 
 ```
 % pandoc -f native -t docx+empty_paragraphs -o - | pandoc -f docx+empty_paragraphs -t native
 [Para [Str "hi"], Para [], Para [], Para [Str "lo"]]
 ^D
-[Para [Str "hi"]
-,Para []
-,Para []
-,Para [Str "lo"]]
+[ Para [ Str "hi" ]
+, Para []
+, Para []
+, Para [ Str "lo" ]
+]
 ```
 
 ```
@@ -37,8 +35,6 @@
 [Para [Str "hi"], Para [], Para [], Para [Str "lo"]]
 ^D
 <p>hi</p>
-
-
 <p>lo</p>
 ```
 
@@ -59,10 +55,11 @@
 <p></p>
 <p>lo</p>
 ^D
-[Para [Str "hi"]
-,Para []
-,Para []
-,Para [Str "lo"]]
+[ Para [ Str "hi" ]
+, Para []
+, Para []
+, Para [ Str "lo" ]
+]
 ```
 
 ```
@@ -72,8 +69,7 @@
 <p></p>
 <p>lo</p>
 ^D
-[Para [Str "hi"]
-,Para [Str "lo"]]
+[ Para [ Str "hi" ] , Para [ Str "lo" ] ]
 ```
 
 ```

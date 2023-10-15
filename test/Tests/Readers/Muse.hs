@@ -1,19 +1,30 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Muse
+   Copyright   : © 2017-2020 Alexander Krotov
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Alexander Krotov <ilabdsf@gmail.com>
+   Stability   : alpha
+   Portability : portable
+
+Tests for the Muse reader.
+-}
 module Tests.Readers.Muse (tests) where
 
-import Prelude
 import Data.List (intersperse)
+import Data.Monoid (Any (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Tasty
 import Test.Tasty.QuickCheck
+import Test.Tasty.Options (IsOption(defaultValue))
 import Tests.Helpers
 import Text.Pandoc
 import Text.Pandoc.Arbitrary ()
 import Text.Pandoc.Builder
-import Text.Pandoc.Shared (underlineSpan)
-import Text.Pandoc.Walk (walk)
+import Text.Pandoc.Writers.Shared (toLegacyTable)
+import Text.Pandoc.Walk
 
 amuse :: Text -> Pandoc
 amuse = purely $ readMuse def { readerExtensions = extensionsFromList [Ext_amuse]}
@@ -29,19 +40,74 @@ infix 4 =:
 spcSep :: [Inlines] -> Inlines
 spcSep = mconcat . intersperse space
 
+simpleTable' :: Int -> Caption -> [Blocks] -> [[Blocks]] -> Blocks
+simpleTable' n capt headers rows
+  = table capt
+          (replicate n (AlignDefault, ColWidthDefault))
+          (TableHead nullAttr $ toHeaderRow headers)
+          [TableBody nullAttr 0 [] $ map toRow rows]
+          (TableFoot nullAttr [])
+  where
+    toRow = Row nullAttr . map simpleCell
+    toHeaderRow l = [toRow l | not (null l)]
+
 -- Tables don't round-trip yet
 --
 makeRoundTrip :: Block -> Block
-makeRoundTrip Table{} = Para [Str "table was here"]
+makeRoundTrip t@(Table tattr blkCapt specs thead tbody tfoot) =
+  if isSimple && numcols > 1
+    then t
+    else Para [Str "table was here"]
+  where (_, aligns, widths, headers, rows) = toLegacyTable blkCapt specs thead tbody tfoot
+        numcols = maximum (length aligns : length widths : map length (headers:rows))
+        isLineBreak LineBreak = Any True
+        isLineBreak _         = Any False
+        hasLineBreak = getAny . query isLineBreak
+        isSimple = and [ isSimpleHead thead
+                       , isSimpleBodies tbody
+                       , isSimpleFoot tfoot
+                       , all (== 0) widths
+                       , isNullAttr tattr
+                       , simpleCapt ]
+        isNullAttr ("", [], []) = True
+        isNullAttr _            = False
+        isAlignDefault AlignDefault = True
+        isAlignDefault _            = False
+        isSimpleRow (Row attr body) = isNullAttr attr && all isSimpleCell body
+        isSimpleCell (Cell attr ali h w body)
+          = and [ h == 1
+                , w == 1
+                , isNullAttr attr
+                , isAlignDefault ali
+                , isSimpleCellBody body ]
+        isSimpleCellBody [Plain ils] = not (hasLineBreak ils)
+        isSimpleCellBody [Para ils ] = not (hasLineBreak ils)
+        isSimpleCellBody []          = True
+        isSimpleCellBody _           = False
+        simpleCapt = case blkCapt of
+          Caption Nothing [Para _]  -> True
+          Caption Nothing [Plain _] -> True
+          _                         -> False
+        isSimpleHead (TableHead attr [r])
+          = isNullAttr attr && isSimpleRow r
+        isSimpleHead _ = False
+        isSimpleBody (TableBody attr rhc hd bd) = and [ isNullAttr attr
+                                                      , rhc == 0
+                                                      , null hd
+                                                      , all isSimpleRow bd ]
+        isSimpleBodies [b] = isSimpleBody b
+        isSimpleBodies _   = False
+        isSimpleFoot (TableFoot attr rs) = isNullAttr attr && null rs
+
 makeRoundTrip (OrderedList (start, LowerAlpha, _) items) = OrderedList (start, Decimal, Period) items
 makeRoundTrip (OrderedList (start, UpperAlpha, _) items) = OrderedList (start, Decimal, Period) items
 makeRoundTrip x = x
 
 -- Demand that any AST produced by Muse reader and written by Muse writer can be read back exactly the same way.
 -- Currently we remove tables and compare first rewrite to the second.
-roundTrip :: Block -> Bool
+roundTrip :: Blocks -> Bool
 roundTrip b = d' == d''
-  where d = walk makeRoundTrip $ Pandoc nullMeta [b]
+  where d = walk makeRoundTrip $ Pandoc nullMeta $ toList b
         d' = rewrite d
         d'' = rewrite d'
         rewrite = amuse . T.pack . (++ "\n") . T.unpack .
@@ -62,6 +128,13 @@ tests =
         "*Foo bar*" =?>
         para (emph . spcSep $ ["Foo", "bar"])
 
+      , "Newline in the beginning of emphasis" =:
+        "*\nFoo bar*" =?>
+        para (text "*\nFoo bar*")
+      , "Newline in the end of emphasis" =:
+        "*Foo bar\n*" =?>
+        para (text "*Foo bar\n*")
+
       , "Comma after closing *" =:
         "Foo *bar*, baz" =?>
         para ("Foo " <> emph "bar" <> ", baz")
@@ -73,6 +146,10 @@ tests =
       , "Letter before opening *" =:
         "Foo x*bar* baz" =?>
         para "Foo x*bar* baz"
+
+      , "Digit after closing *" =:
+        "Foo *bar*0 baz" =?>
+        para "Foo *bar*0 baz"
 
       , "Emphasis tag" =:
         "<em>Foo bar</em>" =?>
@@ -88,8 +165,48 @@ tests =
           "***strength***" =?>
           para (strong . emph $ "strength")
 
+      , "Strong inside emphasis" =:
+        "*foo **bar** baz*" =?>
+        para (emph (text "foo " <> strong (text "bar") <> text " baz"))
+
+      , "Emphasis inside strong" =:
+        "**foo *bar* baz**" =?>
+        para (strong (text "foo " <> emph (text "bar") <> text " baz"))
+
+      , "Opening asterisk can't be preceded by another one" =:
+        "**foo*" =?>
+        para "**foo*"
+
+      , "Asterisk between words does not terminate emphasis" =:
+        "*foo*bar*" =?>
+        para (emph "foo*bar")
+
+      , "Two asterisks between words do not terminate emphasis" =:
+        "*foo**bar*" =?>
+        para (emph "foo**bar")
+
+      , "Three asterisks between words do not terminate emphasis" =:
+        "*foo***bar*" =?>
+        para (emph "foo***bar")
+
+      , "Two asterisks between words do not terminate strong" =:
+        "**foo**bar**" =?>
+        para (strong "foo**bar")
+
+      , "Three asterisks between words do not terminate strong" =:
+        "**foo***bar**" =?>
+        para (strong "foo***bar")
+
+      , "Three asterisks between words do not terminate strong emphasis" =:
+        "***foo***bar***" =?>
+        para (strong . emph $ "foo***bar")
+
+      , "Six asterisks between words do not terminate strong emphasis" =:
+        "***foo******bar***" =?>
+        para (strong . emph $ "foo******bar")
+
       , test emacsMuse "Underline"
-        ("_Underline_" =?> para (underlineSpan "Underline"))
+        ("_Underline_" =?> para (underline "Underline"))
 
       , "Superscript tag" =: "<sup>Superscript</sup>" =?> para (superscript "Superscript")
 
@@ -138,7 +255,13 @@ tests =
           "Foo =bar=, baz" =?>
           para (text "Foo " <> code "bar" <> text ", baz")
 
+        , "Not code if followed by digit" =:
+          "Foo =bar=0 baz" =?>
+          para (text "Foo =bar=0 baz")
+
         , "One character code" =: "=c=" =?> para (code "c")
+
+        , "Code with equal sign" =: "=foo = bar=" =?> para (code "foo = bar")
 
         , "Three = characters is not a code" =: "===" =?> para "==="
 
@@ -175,8 +298,18 @@ tests =
 
       , "Verbatim tag after text" =: "Foo <verbatim>bar</verbatim>" =?> para "Foo bar"
 
+      , "Verbatim tag escapes block level markup" =:
+        T.unlines [ "Foo <verbatim>bar"
+                  , "* Not a heading"
+                  , "</verbatim>baz"
+                  ] =?>
+        para "Foo bar\n* Not a heading\nbaz"
+
       , "Class tag" =: "<class name=\"foo\">bar</class>" =?> para (spanWith ("", ["foo"], []) "bar")
       , "Class tag without name" =: "<class>foobar</class>" =?> para (spanWith ("", [], []) "foobar")
+
+      , "RTL" =: "<<<foo bar>>>" =?> para (spanWith ("", [], [("dir", "rtl")]) "foo bar")
+      , "LTR" =: ">>>foo bar<<<" =?> para (spanWith ("", [], [("dir", "ltr")]) "foo bar")
 
       -- <em> tag should match with the last </em> tag, not verbatim one
       , "Nested \"</em>\" inside em tag" =: "<em>foo<verbatim></em></verbatim>bar</em>" =?> para (emph "foo</em>bar")
@@ -194,9 +327,27 @@ tests =
         , "Image" =:
           "[[image.jpg]]" =?>
           para (image "image.jpg" "" mempty)
+        , "Closing bracket is not allowed in image filename" =:
+          "[[foo]bar.jpg]]" =?>
+          para (text "[[foo]bar.jpg]]")
         , "Image with description" =:
           "[[image.jpg][Image]]" =?>
           para (image "image.jpg" "" (text "Image"))
+        , "Image with space in filename" =:
+          "[[image name.jpg]]" =?>
+          para (image "image name.jpg" "" mempty)
+        , "Image with width" =:
+          "[[image.jpg 60]]" =?>
+          para (imageWith ("", [], [("width", "60%")]) "image.jpg" mempty mempty)
+        , "At least one space is required between image filename and width" =:
+          "[[image.jpg60]]" =?>
+          para (link "image.jpg60" mempty (str "image.jpg60"))
+        , "Left-aligned image with width" =:
+          "[[image.png 60 l][Image]]" =?>
+          para (imageWith ("", ["align-left"], [("width", "60%")]) "image.png" "" (str "Image"))
+        , "Right-aligned image with width" =:
+          "[[image.png 60 r][Image]]" =?>
+          para (imageWith ("", ["align-right"], [("width", "60%")]) "image.png" "" (str "Image"))
         , "Image link" =:
           "[[URL:image.jpg]]" =?>
           para (link "image.jpg" "" (str "image.jpg"))
@@ -213,6 +364,12 @@ tests =
         , "No footnotes inside links" =:
           "[[https://amusewiki.org/][foo[1]]" =?>
           para (link "https://amusewiki.org/" "" (text "foo[1"))
+        , "Image inside link" =:
+          "[[https://amusewiki.org/][Image [[image.png][with it's own description]] inside link description]]" =?>
+          para (link "https://amusewiki.org/" "" (text "Image " <> image "image.png" "" (text "with it's own description") <> text " inside link description"))
+        , "Link inside image description" =:
+          "[[image.jpg][Image from [[https://amusewiki.org/]]]]" =?>
+          para (image "image.jpg" "" (text "Image from " <> link "https://amusewiki.org/" "" (str "https://amusewiki.org/")))
         ]
 
       , testGroup "Literal"
@@ -225,8 +382,12 @@ tests =
         ]
       ]
 
-  , testGroup "Blocks" $
-      [ testProperty "Round trip" roundTrip
+  , testGroup "Blocks"
+      [ askOption $ \(QuickCheckTests numtests) ->
+          testProperty "Round trip" $
+            withMaxSuccess (if QuickCheckTests numtests == defaultValue
+                               then 25
+                               else numtests) roundTrip
       , "Block elements end paragraphs" =:
         T.unlines [ "First paragraph"
                   , "----"
@@ -237,6 +398,14 @@ tests =
         , "4 dashes is a horizontal rule" =: "----" =?> horizontalRule
         , "5 dashes is a horizontal rule" =: "-----" =?> horizontalRule
         , "4 dashes with spaces is a horizontal rule" =: "----  " =?> horizontalRule
+        ]
+      , testGroup "Page breaks"
+        [ "Page break" =:
+          "      * * * * *" =?>
+          divWith ("", [], [("style", "page-break-before: always;")]) mempty
+        , "Page break with trailing space" =:
+          "      * * * * * " =?>
+          divWith ("", [], [("style", "page-break-before: always;")]) mempty
         ]
       , testGroup "Paragraphs"
         [ "Simple paragraph" =:
@@ -385,6 +554,12 @@ tests =
                   , "</verse>"
                   ] =?>
         lineBlock [ "" ]
+      , "Verse tag with verbatim close tag inside" =:
+        T.unlines [ "<verse>"
+                  , "<verbatim></verse></verbatim>"
+                  , "</verse>"
+                  ] =?>
+        lineBlock [ "</verse>" ]
       , testGroup "Example"
         [ "Braces on separate lines" =:
           T.unlines [ "{{{"
@@ -412,6 +587,20 @@ tests =
                     , "}}}"
                     ] =?>
           codeBlock "Example line\n"
+        , "Indented braces" =:
+          T.unlines [ " - {{{"
+                    , "   Example line"
+                    , "   }}}"
+                    ] =?>
+          bulletList [ codeBlock "Example line" ]
+        , "Tabs" =:
+          T.unlines [ "{{{"
+                    , "\t  foo"
+                    , "\t\t"
+                    , "\t  bar"
+                    , "}}}"
+                    ] =?>
+          codeBlock "  foo\n\t\n  bar"
         -- Amusewiki requires braces to be on separate line,
         -- this is an extension.
         , "One line" =:
@@ -589,6 +778,25 @@ tests =
           T.unlines [ "* Foo"
                     , "bar"
                     ] =?> header 1 "Foo\nbar"
+        , "Empty header" =:
+          T.unlines [ "Foo"
+                    , ""
+                    , "* "
+                    , ""
+                    , "bar"
+                    ] =?> para (text "Foo") <> header 1 "" <> para (text "bar")
+        , test (purely $ readMuse def { readerExtensions = extensionsFromList [Ext_amuse, Ext_auto_identifiers]})
+               "Auto identifiers"
+          (T.unlines [ "* foo"
+                     , "** Foo"
+                     , "* bar"
+                     , "** foo"
+                     , "* foo"
+                     ] =?> headerWith ("foo",[],[]) 1 "foo" <>
+                           headerWith ("foo-1",[],[]) 2 "Foo" <>
+                           headerWith ("bar",[],[]) 1 "bar" <>
+                           headerWith ("foo-2",[],[]) 2 "foo" <>
+                           headerWith ("foo-3",[],[]) 1 "foo")
         ]
       , testGroup "Directives"
         [ "Title" =:
@@ -617,6 +825,11 @@ tests =
           Pandoc (setMeta "title" (MetaInlines $ toList "Document title") $
                   setMeta "notes" (MetaInlines $ toList "First line\nand second line") $
                   setMeta "author" (MetaInlines $ toList "Name") nullMeta) mempty
+        , "Amusewiki's #cover is translated to pandoc's #cover-image" =:
+          "#cover cover.png" =?>
+          let titleInline = toList "cover.png"
+              meta = setMeta "cover-image" (MetaInlines titleInline) nullMeta
+          in Pandoc meta mempty
         ]
       , testGroup "Anchors"
         [ "Anchor" =:
@@ -652,6 +865,23 @@ tests =
           para (text "Here is a footnote" <>
                 note (para "Footnote contents") <>
                 str ".")
+        , "Simple secondary footnote" =:
+          T.unlines [ "Here is a secondary note{1}."
+                    , ""
+                    , "{1} Secondary note contents"
+                    ] =?>
+          para (text "Here is a secondary note" <>
+                note (para "Secondary note contents") <>
+                str ".")
+        , "Missing footnote" =: "Foo[1]" =?> para "Foo[1]"
+        , "Missing secondary note" =: "Foo{1}" =?> para "Foo{1}"
+        , "Wrong note type" =:
+          T.unlines [ "Here is a secondary note{1}"
+                    , ""
+                    , "Footnote contents[1]"
+                    ] =?>
+          para "Here is a secondary note{1}" <>
+          para "Footnote contents[1]"
         , "Recursive footnote" =:
           T.unlines [ "Start recursion here[1]"
                     , ""
@@ -710,6 +940,30 @@ tests =
                       , "    > Baz"
                       ] =?>
             para ("Foo" <> note (para "Bar" <> lineBlock ["Baz"]))
+          , "Footnote ending in self-terminating element and followed by paragraph" =:
+            T.unlines [ "Foo[1]"
+                      , ""
+                      , "[1] > bar"
+                      , "baz"
+                      ] =?>
+            para (str "Foo" <> note (lineBlock ["bar"])) <> para (str "baz")
+
+          , "Footnote starting with empty line" =:
+            T.unlines [ "Foo[1]"
+                      , ""
+                      , "[1]" -- No space character after note marker
+                      , ""
+                      , "    Bar"
+                      ] =?>
+            para (str "Foo" <> note (para $ text "Bar"))
+          , "Indentation in footnote starting with empty line" =:
+            T.unlines [ "Foo[1]"
+                      , ""
+                      , "[1]" -- No space character after note marker
+                      , ""
+                      , "   Bar"
+                      ] =?>
+            para (str "Foo" <> note mempty) <> blockQuote (para $ text "Bar")
           , test emacsMuse "Emacs multiparagraph footnotes"
             (T.unlines
               [ "First footnote reference[1] and second footnote reference[2]."
@@ -736,14 +990,10 @@ tests =
     , testGroup "Tables"
         [ "Two cell table" =:
           "One | Two" =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-                       []
-                       [[plain "One", plain "Two"]]
+          simpleTable [] [[plain "One", plain "Two"]]
         , "Table with multiple words" =:
           "One two | three four" =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-                       []
-                       [[plain "One two", plain "three four"]]
+          simpleTable [] [[plain "One two", plain "three four"]]
         , "Not a table" =:
           "One| Two" =?>
           para (text "One| Two")
@@ -755,38 +1005,30 @@ tests =
             [ "One |  Two"
             , "Three  | Four"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-                       []
-                       [[plain "One", plain "Two"],
-                       [plain "Three", plain "Four"]]
+          simpleTable [] [[plain "One", plain "Two"],
+                          [plain "Three", plain "Four"]]
         , "Table with one header" =:
           T.unlines
             [ "First || Second"
             , "Third | Fourth"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-            [plain "First", plain "Second"]
-            [[plain "Third", plain "Fourth"]]
+          simpleTable [plain "First", plain "Second"] [[plain "Third", plain "Fourth"]]
         , "Table with two headers" =:
           T.unlines
             [ "First || header"
             , "Second || header"
             , "Foo | bar"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-            [plain "First", plain "header"]
-            [[plain "Second", plain "header"],
-             [plain "Foo", plain "bar"]]
+          simpleTable [plain "First", plain "header"] [[plain "Second", plain "header"],
+                                                       [plain "Foo", plain "bar"]]
         , "Header and footer reordering" =:
           T.unlines
             [ "Foo ||| bar"
             , "Baz || foo"
             , "Bar | baz"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-            [plain "Baz", plain "foo"]
-            [[plain "Bar", plain "baz"],
-             [plain "Foo", plain "bar"]]
+          simpleTable [plain "Baz", plain "foo"] [[plain "Bar", plain "baz"],
+                                                  [plain "Foo", plain "bar"]]
         , "Table with caption" =:
           T.unlines
             [ "Foo || bar || baz"
@@ -794,24 +1036,30 @@ tests =
             , "Second | row | there"
             , "|+ Table caption +|"
             ] =?>
-          table (text "Table caption") (replicate 3 (AlignDefault, 0.0))
-            [plain "Foo", plain "bar", plain "baz"]
-            [[plain "First", plain "row", plain "here"],
-             [plain "Second", plain "row", plain "there"]]
+          simpleTable' 3 (simpleCaption $ plain $ text "Table caption")
+                       [plain "Foo", plain "bar", plain "baz"]
+                       [[plain "First", plain "row", plain "here"],
+                        [plain "Second", plain "row", plain "there"]]
+        , "Table caption with +" =:
+          T.unlines
+            [ "Foo | bar"
+            , "|+ Table + caption +|"
+            ] =?>
+          simpleTable' 2 (simpleCaption $ plain $ text "Table + caption")
+                       []
+                       [[plain "Foo", plain "bar"]]
         , "Caption without table" =:
           "|+ Foo bar baz +|" =?>
-          table (text "Foo bar baz") [] [] []
+          simpleTable' 0 (simpleCaption $ plain $ text "Foo bar baz") [] []
         , "Table indented with space" =:
           T.unlines
             [ " Foo | bar"
             , " Baz | foo"
             , " Bar | baz"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-            []
-            [[plain "Foo", plain "bar"],
-             [plain "Baz", plain "foo"],
-             [plain "Bar", plain "baz"]]
+          simpleTable [] [[plain "Foo", plain "bar"],
+                          [plain "Baz", plain "foo"],
+                          [plain "Bar", plain "baz"]]
         , "Empty cells" =:
           T.unlines
             [ " | Foo"
@@ -819,11 +1067,61 @@ tests =
             , " bar |"
             , " || baz"
             ] =?>
-          table mempty [(AlignDefault, 0.0), (AlignDefault, 0.0)]
-            [plain "", plain "baz"]
-            [[plain "", plain "Foo"],
-             [plain "", plain ""],
-             [plain "bar", plain ""]]
+          simpleTable [plain "", plain "baz"] [[plain "", plain "Foo"],
+                                               [plain "", plain ""],
+                                               [plain "bar", plain ""]]
+        , "Empty cell in the middle" =:
+          T.unlines
+            [ " 1 | 2 | 3"
+            , " 4 |   | 6"
+            , " 7 | 8 | 9"
+            ] =?>
+          simpleTable []
+                      [[plain "1", plain "2", plain "3"],
+                       [plain "4", mempty,    plain "6"],
+                       [plain "7", plain "8", plain "9"]]
+        , "Grid table" =:
+          T.unlines
+            [ "+-----+-----+"
+            , "| foo | bar |"
+            , "+-----+-----+"
+            ] =?>
+          simpleTable [] [[para "foo", para "bar"]]
+        , "Grid table inside list" =:
+          T.unlines
+            [ " - +-----+-----+"
+            , "   | foo | bar |"
+            , "   +-----+-----+"
+            ] =?>
+          bulletList [simpleTable [] [[para "foo", para "bar"]]]
+        , "Grid table with two rows" =:
+          T.unlines
+            [ "+-----+-----+"
+            , "| foo | bar |"
+            , "+-----+-----+"
+            , "| bat | baz |"
+            , "+-----+-----+"
+            ] =?>
+          simpleTable [] [[para "foo", para "bar"]
+                         ,[para "bat", para "baz"]]
+        , "Grid table inside grid table" =:
+          T.unlines
+            [ "+-----+"
+            , "|+---+|"
+            , "||foo||"
+            , "|+---+|"
+            , "+-----+"
+            ] =?>
+          simpleTable [] [[simpleTable [] [[para "foo"]]]]
+        , "Grid table with example" =:
+          T.unlines
+            [ "+------------+"
+            , "| <example>  |"
+            , "| foo        |"
+            , "| </example> |"
+            , "+------------+"
+            ] =?>
+          simpleTable [] [[codeBlock "foo"]]
         ]
     , testGroup "Lists"
       [ "Bullet list" =:
@@ -972,7 +1270,7 @@ tests =
                               , para "c"
                               ]
                     ]
-      , "List continuation afeter nested list" =:
+      , "List continuation after nested list" =:
          T.unlines
            [ " - - foo"
            , ""
@@ -1118,6 +1416,11 @@ tests =
             ] =?>
           bulletList [ lineBlock [ "foo" ] ] <> bulletList [ para "bar" ]
         ]
+      , "List ending in self-terminating element and followed by paragraph" =:
+        T.unlines [ " - > Foo"
+                  , "bar"
+                  ] =?>
+        bulletList [lineBlock ["Foo"]] <> para (str "bar")
       -- Test that definition list requires a leading space.
       -- Emacs Muse does not require a space, we follow Amusewiki here.
       , "Not a definition list" =:
@@ -1185,6 +1488,14 @@ tests =
                                                     ]
                                         ])
                        ]
+      , "Definition list with table" =:
+        " foo :: bar | baz" =?>
+        definitionList [ ("foo", [ simpleTable [] [[plain "bar", plain "baz"]]
+                                 ])]
+      , "Definition list with table inside bullet list" =:
+        " - foo :: bar | baz" =?>
+        bulletList [definitionList [ ("foo", [ simpleTable [] [[plain "bar", plain "baz"]]
+                                             ])]]
       , test emacsMuse "Multi-line definition lists from Emacs Muse manual"
         (T.unlines
           [ "Term1 ::"
@@ -1335,7 +1646,8 @@ tests =
           , "   <verse>"
           , "   </quote>"
           , "   </verse>"
+          , "</quote>"
           ] =?>
-        para "<quote>" <> bulletList [ para "Foo" <> para "</quote>" <> para "bar" <> lineBlock [ "</quote>" ] ]
+        blockQuote (bulletList [ para "Foo" <> para "</quote>" <> para "bar" <> lineBlock [ "</quote>" ] ])
       ]
   ]

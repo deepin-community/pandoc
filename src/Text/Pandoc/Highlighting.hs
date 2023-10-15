@@ -1,25 +1,7 @@
-{-# LANGUAGE NoImplicitPrelude #-}
-{-
-Copyright (C) 2008-2018 John MacFarlane <jgm@berkeley.edu>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
+{-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Highlighting
-   Copyright   : Copyright (C) 2008-2018 John MacFarlane
+   Copyright   : Copyright (C) 2008-2022 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -45,14 +27,13 @@ module Text.Pandoc.Highlighting ( highlightingStyles
                                 , tango
                                 , kate
                                 , monochrome
+                                , breezeDark
                                 , haddock
                                 , Style
                                 , fromListingsLanguage
                                 , toListingsLanguage
                                 ) where
-import Prelude
 import Control.Monad
-import Data.Char (toLower)
 import qualified Data.Map as M
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
@@ -60,7 +41,7 @@ import Skylighting
 import Text.Pandoc.Definition
 import Text.Pandoc.Shared (safeRead)
 
-highlightingStyles :: [(String, Style)]
+highlightingStyles :: [(T.Text, Style)]
 highlightingStyles =
   [("pygments", pygments),
    ("tango", tango),
@@ -71,18 +52,18 @@ highlightingStyles =
    ("breezedark", breezeDark),
    ("haddock", haddock)]
 
-languages :: [String]
-languages = [T.unpack (T.toLower (sName s)) | s <- M.elems defaultSyntaxMap]
+languages :: SyntaxMap -> [T.Text]
+languages syntaxmap = [T.toLower (sName s) | s <- M.elems syntaxmap]
 
-languagesByExtension :: String -> [String]
-languagesByExtension ext =
-  [T.unpack (T.toLower (sName s)) | s <- syntaxesByExtension defaultSyntaxMap ext]
+languagesByExtension :: SyntaxMap -> T.Text -> [T.Text]
+languagesByExtension syntaxmap ext =
+  [T.toLower (sName s) | s <- syntaxesByExtension syntaxmap (T.unpack ext)]
 
 highlight :: SyntaxMap
           -> (FormatOptions -> [SourceLine] -> a) -- ^ Formatter
           -> Attr   -- ^ Attributes of the CodeBlock
-          -> String -- ^ Raw contents of the CodeBlock
-          -> Either String a
+          -> T.Text -- ^ Raw contents of the CodeBlock
+          -> Either T.Text a
 highlight syntaxmap formatter (ident, classes, keyvals) rawCode =
   let firstNum = fromMaybe 1 (safeRead (fromMaybe "1" $ lookup "startFrom" keyvals))
       fmtOpts = defaultFormatOpts{
@@ -91,38 +72,36 @@ highlight syntaxmap formatter (ident, classes, keyvals) rawCode =
                         ["line-anchors", "lineAnchors"]) classes,
                   numberLines = any (`elem`
                         ["number","numberLines", "number-lines"]) classes,
-                  lineIdPrefix = if null ident
+                  lineIdPrefix = if T.null ident
                                     then mempty
-                                    else T.pack (ident ++ "-") }
+                                    else ident <> "-" }
       tokenizeOpts = TokenizerConfig{ syntaxMap = syntaxmap
                                     , traceOutput = False }
-      classes' = map T.pack classes
-      rawCode' = T.pack rawCode
-  in  case msum (map (`lookupSyntax` syntaxmap) classes') of
+  in  case msum (map (`lookupSyntax` syntaxmap) classes) of
             Nothing
               | numberLines fmtOpts -> Right
                               $ formatter fmtOpts{ codeClasses = [],
-                                                   containerClasses = classes' }
+                                                   containerClasses = classes }
                               $ map (\ln -> [(NormalTok, ln)])
-                              $ T.lines rawCode'
+                              $ T.lines rawCode
               | otherwise  -> Left ""
-            Just syntax  ->
+            Just syntax  -> either (Left . T.pack) Right $
               formatter fmtOpts{ codeClasses =
                                    [T.toLower (sShortname syntax)],
-                                  containerClasses = classes' } <$>
-                tokenize tokenizeOpts syntax rawCode'
+                                  containerClasses = classes } <$>
+                tokenize tokenizeOpts syntax rawCode
 
 -- Functions for correlating latex listings package's language names
 -- with skylighting language names:
 
-langToListingsMap :: M.Map String String
+langToListingsMap :: M.Map T.Text T.Text
 langToListingsMap = M.fromList langsList
 
-listingsToLangMap :: M.Map String String
+listingsToLangMap :: M.Map T.Text T.Text
 listingsToLangMap = M.fromList $ map switch langsList
   where switch (a,b) = (b,a)
 
-langsList :: [(String, String)]
+langsList :: [(T.Text, T.Text)]
 langsList =
   [("abap","ABAP"),
   ("acm","ACM"),
@@ -138,6 +117,8 @@ langsList =
   ("monobasic","Basic"),
   ("purebasic","Basic"),
   ("c","C"),
+  ("cs","C"),
+  ("objectivec","C"),
   ("cpp","C++"),
   ("c++","C++"),
   ("ocaml","Caml"),
@@ -149,13 +130,16 @@ langsList =
   ("comsol","Comsol"),
   ("csh","csh"),
   ("delphi","Delphi"),
+  ("eiffel","Eiffel"),
   ("elan","Elan"),
+  ("elisp","elisp"),
   ("erlang","erlang"),
   ("euphoria","Euphoria"),
   ("fortran","Fortran"),
   ("gap","GAP"),
   ("gcl","GCL"),
   ("gnuplot","Gnuplot"),
+  ("go","Go"),
   ("hansl","hansl"),
   ("haskell","Haskell"),
   ("html","HTML"),
@@ -185,6 +169,7 @@ langsList =
   ("oberon2","Oberon-2"),
   ("ocl","OCL"),
   ("octave","Octave"),
+  ("oorexx","OORexx"),
   ("oz","Oz"),
   ("pascal","Pascal"),
   ("perl","Perl"),
@@ -211,6 +196,7 @@ langsList =
   ("simula","Simula"),
   ("sparql","SPARQL"),
   ("sql","SQL"),
+  ("swift","Swift"),
   ("tcl","tcl"),
   ("tex","TeX"),
   ("latex","TeX"),
@@ -222,9 +208,9 @@ langsList =
   ("xslt","XSLT")]
 
 -- | Determine listings language name from skylighting language name.
-toListingsLanguage :: String -> Maybe String
-toListingsLanguage lang = M.lookup (map toLower lang) langToListingsMap
+toListingsLanguage :: T.Text -> Maybe T.Text
+toListingsLanguage lang = M.lookup (T.toLower lang) langToListingsMap
 
 -- | Determine skylighting language name from listings language name.
-fromListingsLanguage :: String -> Maybe String
+fromListingsLanguage :: T.Text -> Maybe T.Text
 fromListingsLanguage lang = M.lookup lang listingsToLangMap

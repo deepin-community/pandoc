@@ -1,3 +1,273 @@
+pandoc (2.17.1.1-3) unstable; urgency=medium
+
+  * stop build-depend on libghc-regex-pcre-doc;
+    closes: bug#1050012, thanks to Bastian Germann
+  * update copyright info: update coverage
+
+ -- Jonas Smedegaard <dr@jones.dk>  Fri, 18 Aug 2023 17:22:50 +0200
+
+pandoc (2.17.1.1-2) unstable; urgency=high
+
+  * add patches cherry-picked upstream
+    to fix arbitrary file write vulnerability;
+    closes: bug#1041976, thanks to Guilhem Moulin;
+    CVE-2023-35936 CVE-2023-35936
+
+ -- Jonas Smedegaard <dr@jones.dk>  Tue, 25 Jul 2023 18:43:57 +0200
+
+pandoc (2.17.1.1-1.1) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Workaround i386 FTBFS with -O0. (Closes: #1023149)
+
+ -- Adrian Bunk <bunk@debian.org>  Sat, 19 Nov 2022 15:13:51 +0200
+
+pandoc (2.17.1.1-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s);
+    closes: bug#979124, thanks to Kenshi Muto and Yukiharu YABUKI;
+    contains many bugfixes and feature additions, including...:
+    + DocBook reader: ensure that first and last names are separated;
+      closes: bug#963128, thanks to Vincent Lefevre
+    + DocBook reader: parse releaseinfo as metadata;
+      closes: bug#963129, thanks to Vincent Lefevre
+    + update template for reveal.js 4.0.0;
+      closes: bug#969475, thanks to Thomas Clavier
+
+  [ Jonas Smedegaard ]
+  * drop patches cherry-picked upstream now applied
+  * add patches cherry-picked upstream to use newer skylighting
+  * update/unfuzz patches
+  * add GHC (build-)dependencies for
+    citeproc commonmark commonmark-extensions commonmark-pandoc
+    file-embed hslua-aeson hslua-marshalling hslua-module-path
+    hslua-module-version lpeg pandoc-lua-marshal pretty-show
+    unicode-collation xml-conduit yaml;
+    bump GHC bounds for
+    haddock-library hslua hslua-module-system hslua-module-text
+    ipynb jira-wiki-markup pandoc-types
+    skylighting skylighting-core tasty-lua;
+    tighten GHC bounds for texmath;
+    tighten lower GHC bounds for doclayout doctemplates;
+    relax upper GHC bounds for aeson attoparsec base64-bytestring
+    blaze-markup network-uri random tasty unicode-transforms;
+    drop unneeded lower GHC bounds for
+    aeson-pretty blaze-html blaze-markup case-insensitive
+    exceptions http-client http-client-tls network tagsoup
+    tasty tasty-golden;
+    drop GHC (build-)dependencies on
+    bitarray cmark-gfm executable-path hsyaml http
+    quickcheck2 unordered-containers
+  * update copyright info: update coverage
+  * update TODOs
+  * update long descriptions,
+    based on upstream Cabal file project description
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 13 Aug 2022 16:45:31 +0200
+
+pandoc (2.10-1) experimental; urgency=medium
+
+  [ upstream ]
+  * new release
+
+  [ Jonas Smedegaard ]
+  * update TODOs: list packages needed for which upgrades
+  * unfuzz patches
+  * add GHC (build-)dependencies for connection;
+    bump GHC bounds for hslua pandoc-types;
+    tighten lower GHC bounds for doctemplates
+    hslua-module-text skylighting skylighting-core texmath;
+    relax upper GHC bounds for aeson haddock-library
+    base64-bytestring http-client quickcheck2 tasty;
+    drop GHC (build-)dependencies for vector
+  * update copyright info: update coverage
+  * declare compliance with Debian Policy 4.6.1
+  * update git-buildpackage config:
+    + use DEP-14 git branches
+    + enable automatic DEP-14 branch name handling
+    + stop filter dist/*
+    + add usage config
+  * modernize source helper copyright-check
+  * enable tests before loading haskell snippets,
+    apparently needed by recent dh-haskell
+  * extend patch 2001 to cover html-related tests
+  * add patches cherry-picked upstream
+    to modernize jira-wiki-markup
+
+ -- Jonas Smedegaard <dr@jones.dk>  Wed, 01 Jun 2022 08:03:18 +0200
+
+pandoc (2.9.2.1-3) unstable; urgency=medium
+
+  * simple rebuild to link against current libcmark
+    (see bug#1003964)
+
+ -- Jonas Smedegaard <dr@jones.dk>  Wed, 19 Jan 2022 09:58:08 +0100
+
+pandoc (2.9.2.1-2) unstable; urgency=medium
+
+  * fix modernize path to katex;
+    build-depend on libjs-katex (not node-katex)
+  * declare compliance with Debian Policy 4.6.0
+  * update copyright info:
+    + use Reference field (not License-Reference);
+      tighten lintian overrides
+    + update coverage
+
+ -- Jonas Smedegaard <dr@jones.dk>  Thu, 13 Jan 2022 21:19:10 +0100
+
+pandoc (2.9.2.1-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s)
+
+  [ Jonas Smedegaard ]
+  * update package relations:
+    + tighten GHC lower bounds
+      for doclayout jira-wiki-markup skylighting
+      skylighting-core texmath
+    + relax GHC upper bounds
+      for doclayout jira-wiki-markup
+    Closes: bug#968882, thanks to Adrian Bunk
+  * update long descriptions: add new reader CSV
+  * unfuzz patches
+  * copyright: update coverage
+  * add patch cherry-picked upstream
+    to revert dependency on base-noprelude
+  * fix stop annotate Multi-Arch: same
+    for libghc-pandoc-dev libghc-pandoc-prof
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 23 Aug 2020 10:24:33 +0200
+
+pandoc (2.9.1.1-3) unstable; urgency=medium
+
+  * tune build for weak targets:
+    + revert to C option ggc-min-expand=10
+    + include hppa as a weak target
+    + add C option -O0
+    really closes: bug#965121, thanks (also) to Adrian Bunk
+
+ -- Jonas Smedegaard <dr@jones.dk>  Thu, 30 Jul 2020 15:31:00 +0200
+
+pandoc (2.9.1.1-2) unstable; urgency=medium
+
+  * reduce compile-time memory utilization on armel and armhf
+    (in addition to mips and mipsel),
+    and reduce further
+    (begin garbage-collect at 5% memory utilization not 10%);
+    closes: bug#965121, thanks to Sebastian Ramacher
+
+ -- Jonas Smedegaard <dr@jones.dk>  Thu, 16 Jul 2020 17:13:21 +0200
+
+pandoc (2.9.1.1-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s)
+
+  [ Jonas Smedegaard ]
+  * fix provide virtual pandoc-abi-*
+  * annotate binary package pandoc-dev as Multi-Arch: same
+  * drop patch cherry-picked upstream since applied
+  * copyright: update coverage
+  * update long descriptions:
+    + add new reader: Kira markup
+  * fix provide virtual pandoc-abi
+
+ -- Jonas Smedegaard <dr@jones.dk>  Tue, 14 Jul 2020 12:44:35 +0200
+
+pandoc (2.8.1-2) unstable; urgency=medium
+
+  * fix typo in previous changelog entry
+  * declare compliance with Debian Policy 4.5.0
+  * mention citation-style-language-styles in README.Debian
+    (not only in long description)
+  * fix update -doc build-dependencies
+  * annotate binary package pandoc-doc as Multi-Arch: foreign;
+    annotate binary package pandoc-prof as Multi-Arch: same
+  * drop NEWS older than oldstable
+
+ -- Jonas Smedegaard <dr@jones.dk>  Tue, 14 Jul 2020 11:29:37 +0200
+
+pandoc (2.8.1-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s)
+    closes: bug#927689, #964822, #959851
+
+  [ Jonas Smedegaard ]
+  * fix typo in previous changelog entry
+  * suggest citation-style-language-styles;
+    mention when suitable to use
+    in long description of binary package pandoc
+  * provide virtual package pandoc-abi,
+    versioned based on pandoc-types upstream version;
+    see bug#962715
+  * drop patches cherry-picked upstream since applied
+  * unfuzz and update patches
+  * update package relations:
+    + add GHC for attoparsec doclayout hslua-module-system
+      skylighting-core text-conversions
+    + tighten GHC lower bounds
+      for cmark-gfm haddock-library hsyaml pandoc-types
+      skylighting texmath
+    + relax GHC upper bounds
+      for diff cmark-gfm glob haddock-library hsyaml http-client
+      pandoc-types quickcheck2 skylighting texmath
+  * update long descriptions:
+    + add new readers: DokuWiki markup, ipynb (Jupyter notebooks)
+    + add new writers: XWiki, Jira, ipynb
+  * copyright: update coverage
+
+ -- Jonas Smedegaard <dr@jones.dk>  Mon, 13 Jul 2020 22:19:13 +0200
+
+pandoc (2.5-3) unstable; urgency=medium
+
+  * fix broken latex code for horisontal ruler
+    previously silently ignored but failing with recent TeXLive.
+    Closes: Bug#944978. Thanks to Francesco Poli.
+  * Declare compliance with Debian Policy 4.4.1.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Mon, 18 Nov 2019 19:03:47 +0100
+
+pandoc (2.5-2) unstable; urgency=medium
+
+  * Add patch to reference README.Debian when programs are missing.
+    Closes: Bug#922418. Thanks to Chris Lamb.
+  * Fix consistently rename groff → roff in long description.
+  * Use debhelper compatibility level 10.
+  * Update watch file: Rewrite usage comment.
+  * Fix update README.Debian about packages needed for optional features,
+    and include all README.Debian notes in all binary packages.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 01 Sep 2019 11:22:59 +0200
+
+pandoc (2.5-1) unstable; urgency=medium
+
+  [ upstream ]
+  * New release(s).
+
+  [ Jonas Smedegaard ]
+  * Update package relations:
+    + Tighten GHC lower bounds for texmath pandoc-types skylighting
+      hslua hslua-module-text haddock-library.
+    + Relax GHC upper bounds for aeson hslua hslua-module-text
+      haddock-library juicypixels tasty quickcheck2 zip-archive.
+    + Add GHC relations for unicode-transforms hsyaml.
+    + Drop GHC relations for yaml scientific.
+    + Fix drop GHC relations for mtl parsec3 text (provided by ghc).
+  * Drop patch cherry-picked upstream and now applied.
+  * Unfuzz patch 2001.
+  * Declare compliance with Debian Policy 4.4.0.
+  * Update copyright info:
+    + Extend coverage for upstream authors.
+    + Extend coverage of packaging.
+  * Update long descriptions:
+    + Add new reader: roff man.
+    + Add new writer: PowerPoint pptx.
+    + Rename writers to roff (from groff).
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 01 Sep 2019 03:11:45 +0200
+
 pandoc (2.2.1-3) unstable; urgency=medium
 
   * Add patch cherry-picked upstream to allow tasty 1.1.

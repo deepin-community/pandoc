@@ -1,24 +1,5 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TupleSections     #-}
-{-
-Copyright (C) 2015 Martin Linnemann <theCodingMarlin@googlemail.com>
-
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
--}
-
 {- |
    Module      : Text.Pandoc.Readers.Odt.Arrows.State
    Copyright   : Copyright (C) 2015 Martin Linnemann
@@ -38,13 +19,10 @@ faster and easier to implement this way.
 
 module Text.Pandoc.Readers.Odt.Arrows.State where
 
-import Prelude
-import Prelude hiding (foldl, foldr)
-
 import Control.Arrow
 import qualified Control.Category as Cat
 import Control.Monad
-
+import Data.List (foldl')
 import Text.Pandoc.Readers.Odt.Arrows.Utils
 import Text.Pandoc.Readers.Odt.Generic.Fallible
 
@@ -144,7 +122,7 @@ iterateS a = ArrowState $ \(s,f) -> foldr a' (s,mzero) f
 iterateSL :: (Foldable f, MonadPlus m)
           => ArrowState s    x     y
           -> ArrowState s (f x) (m y)
-iterateSL a = ArrowState $ \(s,f) -> foldl a' (s,mzero) f
+iterateSL a = ArrowState $ \(s,f) -> foldl' a' (s,mzero) f
   where a' (s',m) x = second (mplus m.return) $ runArrowState a (s',x)
 
 

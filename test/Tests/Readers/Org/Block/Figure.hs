@@ -1,8 +1,17 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Block.Figure
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Test parsing of org figures.
+-}
 module Tests.Readers.Org.Block.Figure (tests) where
 
-import Prelude
 import Test.Tasty (TestTree)
 import Tests.Helpers ((=?>))
 import Tests.Readers.Org.Shared ((=:))
@@ -33,9 +42,9 @@ tests =
                   "Used as a metapher in evolutionary biology.")
 
   , "Figure with HTML attributes" =:
-      T.unlines [ "#+CAPTION: mah brain just explodid"
-                , "#+NAME: lambdacat"
-                , "#+ATTR_HTML: :style color: blue :role button"
+      T.unlines [ "#+caption: mah brain just explodid"
+                , "#+name: lambdacat"
+                , "#+attr_html: :style color: blue :role button"
                 , "[[file:lambdacat.jpg]]"
                 ] =?>
       let kv = [("style", "color: blue"), ("role", "button")]
@@ -43,16 +52,23 @@ tests =
           caption = "mah brain just explodid"
       in para (imageWith (mempty, mempty, kv) "lambdacat.jpg" name caption)
 
+  , "LaTeX attributes are ignored" =:
+      T.unlines [ "#+caption: Attribute after caption"
+                , "#+attr_latex: :float nil"
+                , "[[file:test.png]]"
+                ] =?>
+      para (image "test.png" "fig:" "Attribute after caption")
+
   , "Labelled figure" =:
-      T.unlines [ "#+CAPTION: My figure"
-                , "#+LABEL: fig:myfig"
+      T.unlines [ "#+caption: My figure"
+                , "#+label: fig:myfig"
                 , "[[file:blub.png]]"
                 ] =?>
       let attr = ("fig:myfig", mempty, mempty)
       in para (imageWith attr "blub.png" "fig:" "My figure")
 
   , "Figure with empty caption" =:
-      T.unlines [ "#+CAPTION:"
+      T.unlines [ "#+caption:"
                 , "[[file:guess.jpg]]"
                 ] =?>
       para (image "guess.jpg" "fig:" "")

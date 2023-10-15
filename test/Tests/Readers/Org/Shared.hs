@@ -1,4 +1,15 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE OverloadedStrings #-}
+{- |
+   Module      : Tests.Readers.Org.Shared
+   Copyright   : © 2014-2022 Albert Krewinkel
+   License     : GNU GPL, version 2 or above
+
+   Maintainer  : Albert Krewinkel <albert@zeitkraut.de>
+   Stability   : alpha
+   Portability : portable
+
+Helper functions used by other org tests.
+-}
 module Tests.Readers.Org.Shared
   ( (=:)
   , org
@@ -6,7 +17,6 @@ module Tests.Readers.Org.Shared
   , tagSpan
   ) where
 
-import Prelude
 import Data.List (intersperse)
 import Data.Text (Text)
 import Tests.Helpers (ToString, purely, test)
@@ -27,5 +37,5 @@ spcSep :: [Inlines] -> Inlines
 spcSep = mconcat . intersperse space
 
 -- | Create a span for the given tag.
-tagSpan :: String -> Inlines
+tagSpan :: Text -> Inlines
 tagSpan t = spanWith ("", ["tag"], [("tag-name", t)]) . smallcaps $ str t

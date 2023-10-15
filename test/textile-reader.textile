@@ -5,7 +5,7 @@ from John Gruber's markdown test suite.
 
 h1. Headers
 
-h2. Level 2 with an "embeded link":http://www.example.com
+h2. Level 2 with an "embedded link":http://www.example.com
 
 h3. Level 3 with *emphasis*
 
@@ -162,7 +162,7 @@ Subscripts: ~here~ H[ ~2~]O, H[ ~23~]O, H[ ~many of them~]O.
 
 Dashes : How cool -- automatic dashes.
 
-Elipses : He thought and thought ... and then thought some more.
+Ellipses : He thought and thought ... and then thought some more.
 
 Quotes and apostrophes : "I'd like to thank you" for example.
 
