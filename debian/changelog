@@ -1,10 +1,109 @@
+pandoc (3.1.3+ds-3) unstable; urgency=medium
+
+  * add loong64 as low-memory architecture;
+    closes: bug#1069179, thanks to Dandan Zhang
+  * declare compliance with Debian Policy 4.7.0
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 21 Apr 2024 01:16:47 +0200
+
+pandoc (3.1.3+ds-2) unstable; urgency=medium
+
+  * tighten build-dependency on libghc-pandoc-dev
+  * drop patches 2001_*, obsoleted by upstream changes;
+    tighten GHC lower bounds for hslua-cli pandoc-lua-engine
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 07 Jan 2024 01:52:39 +0100
+
+pandoc (3.1.3+ds-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s)
+
+  [ Jonas Smedegaard ]
+  * update patches
+  * mention support for Typst format in long description
+  * update TODOs
+
+ -- Jonas Smedegaard <dr@jones.dk>  Wed, 03 Jan 2024 20:32:48 +0100
+
+pandoc (3.0.1+ds-3) unstable; urgency=medium
+
+  * strip repackaging suffix from resolved dependency
+
+ -- Jonas Smedegaard <dr@jones.dk>  Mon, 11 Dec 2023 10:57:50 +0100
+
+pandoc (3.0.1+ds-2) unstable; urgency=medium
+
+  * stop prefix library version
+  * avoid generating man page
+    on architectures where the executable is built with Lua support;
+    closes: bug#1057952, thanks to Sebastian Ramacher
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 10 Dec 2023 23:14:13 +0100
+
+pandoc (3.0.1+ds-1) unstable; urgency=medium
+
+  * re-release as version 3.0.1;
+    this version technically does not exist upstream
+    (only for the library part, not the command-line tool),
+    but upstream has decided in future to use same version scheme.
+  * update watch file: track git-tagged releases
+  * add TODO notes about future releases
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sun, 10 Dec 2023 22:29:24 +0100
+
+pandoc (2.17.1.1+~git20230125+ds-1) unstable; urgency=medium
+
+  [ upstream ]
+  * new release(s);
+    closes: bug#1053686,
+    thanks to Adrian Bunk, Paul Gevers, Ilias Tsitsimpis,
+    Scott Talbert and John MacFarlane
+
+  [ Jonas Smedegaard ]
+  * update watch file:
+    + track Github source (not Hackage distribution)
+    + mangle upstream version to prepend last upstream 2.x version
+    + use repackaging suffix +ds
+  * update copyright info:
+    + list only Github source URI
+    + repackage upstream source
+      to exclude everything but pandoc-cli directory
+    + update coverage
+  * stop resolve build-dependencies in rules file
+  * stop provide binary packages
+    pandoc-data libghc-pandoc-dev libghc-pandoc-doc libghc-pandoc-prof;
+    drop all previous patches, now obsolete;
+    build-depend on GHC projects
+    hslua-cli pandoc pandoc-lua-engine temporary
+    (and only core projects besides those);
+    closes: bug#1050012, thanks (again) to Bastian Germann;
+    closes: bug#1057309,
+    thanks to Hannes von Haugwitz and Scott Talbert
+  * declare compliance with Debian Policy 4.6.2
+  * add patch 2001 to accept older releases
+    of GHC projects hslua-cli pandoc-lua-engine;
+    relax related build-dependencies
+  * populate source code at root during build,
+    where haskell-devscripts can use it
+  * mention support for bibliography format RIS and data format TSV
+    in long description
+  * prepend upstream library version to binary package version
+    (see <https://github.com/jgm/pandoc/issues/9232>)
+  * use forked Haskell build helper script to support DEB_CABAL_FILE
+  * generate map page from source;
+    build-depend on pandoc-data
+  * adjust dependency on pandoc-data
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 09 Dec 2023 14:46:32 +0100
+
 pandoc (2.17.1.1-3) unstable; urgency=medium
 
   * stop build-depend on libghc-regex-pcre-doc;
     closes: bug#1050012, thanks to Bastian Germann
   * update copyright info: update coverage
 
- -- Jonas Smedegaard <dr@jones.dk>  Fri, 18 Aug 2023 17:22:50 +0200
+ -- Jonas Smedegaard <dr@jones.dk>  Wed, 30 Aug 2023 11:20:29 +0200
 
 pandoc (2.17.1.1-2) unstable; urgency=high
 

@@ -2,5 +2,9 @@ version=4
 # check: uscan --report
 # update: gbp import-orig --upstream-vcs-tag=vX.Y.Z --uscan
 
-https://hackage.haskell.org/package/@PACKAGE@/distro-monitor \
- .*-@ANY_VERSION@@ARCHIVE_EXT@
+opts=\
+filenamemangle=s/.*?(@ANY_VERSION@@ARCHIVE_EXT@)/@PACKAGE@-$1/,\
+repacksuffix=+ds,\
+dversionmangle=auto \
+https://github.com/jgm/pandoc/tags \
+.*?@ANY_VERSION@@ARCHIVE_EXT@
