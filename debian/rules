@@ -1,168 +1,24 @@
 #!/usr/bin/make -f
 
+# resolve DEB_VERSION_UPSTREAM
+include /usr/share/dpkg/pkg-info.mk
+
+# TODO: simplify rules when haskell-devscripts supports DEB_SRCDIR
+#DEB_SRCDIR = pandoc-cli
+
+DEB_CABAL_FILE = pandoc-cli/pandoc-cli.cabal
 DEB_ENABLE_TESTS = yes
+DEB_CABAL_PACKAGE = pandoc-cli
 
 include /usr/share/cdbs/1/rules/debhelper.mk
--include /usr/share/cdbs/1/class/hlibrary.mk
+
+# use forked Haskell build helper script to support DEB_CABAL_FILE
+-include debian/hlibrary.mk
 
 pkg = $(DEB_SOURCE_PACKAGE)
 
 ABI = $(shell dpkg-query --showformat='$${source:Version}' --show libghc-pandoc-types-dev)
-
-# helper macros for GHC dependencies, e.g.: foo bar,dev,prof doc,>=,1.2,<<,1.3 baz
-expand-or-strip-ghc-dep = $(foreach expandsuffix,$1,\
- $(comma) libghc-$3-$(expandsuffix) $(if $4,($4 $5))\
- $(if $6,\
-  $(comma) libghc-$3-$(expandsuffix) ($6 $7)))\
- $(foreach stripsuffix,$2,\
-  $(comma) libghc-$3-$(stripsuffix))
-expand-ghc-deps = $(foreach dep,$(sort $3),$(call expand-or-strip-ghc-dep,\
- $1,\
- $2,$(strip \
- $(word 1,$(subst $(comma),$(space),$(dep)))),$(strip \
- $(word 2,$(subst $(comma),$(space),$(dep)))),$(strip \
- $(word 3,$(subst $(comma),$(space),$(dep)))),$(strip \
- $(word 4,$(subst $(comma),$(space),$(dep)))),$(strip \
- $(word 5,$(subst $(comma),$(space),$(dep))))))
-
-# Haskell dependencies for any build from pandoc.cabal
-ghc-deps += glob,<<,0.11
-ghc-deps += juicypixels,<<,3.4
-ghc-deps += sha,<<,1.7
-ghc-deps += aeson,<<,2.1
-ghc-deps += aeson-pretty,<<,0.9
-ghc-deps += attoparsec,<<,0.15
-ghc-deps += base64-bytestring,<<,1.3
-ghc-deps += blaze-html,<<,0.10
-ghc-deps += blaze-markup,<<,0.9
-ghc-deps += case-insensitive,<<,1.3
-ghc-deps += citeproc,<<,0.7
-ghc-deps += commonmark,<<,0.3
-ghc-deps += commonmark-extensions,<<,0.3
-ghc-deps += commonmark-pandoc,<<,0.3
-ghc-deps += connection,>=,0.3.1
-ghc-deps += data-default,<<,0.8
-ghc-deps += doclayout,>=,0.3.1.1,<<,0.4
-ghc-deps += doctemplates,>=,0.10,<<,0.11
-ghc-deps += emojis,<<,0.2
-ghc-deps += exceptions,<<,0.11
-ghc-deps += file-embed,<<,0.1
-ghc-deps += haddock-library,>=,1.10,<<,1.11
-ghc-deps += hslua,>=,2.1,<<,2.2
-ghc-deps += hslua-aeson,>=,2.1,<<,2.2
-ghc-deps += hslua-marshalling,>=,2.1,<<,2.2
-ghc-deps += hslua-module-path,<<,1.1
-ghc-deps += hslua-module-system,>=,1,<<,1.1
-ghc-deps += hslua-module-text,>=,1,<<,1.1
-ghc-deps += hslua-module-version,<<,1.1
-ghc-deps += http-client,<<,0.8
-ghc-deps += http-client-tls,<<,0.4
-ghc-deps += http-types,<<,0.13
-ghc-deps += ipynb,>=,0.2,<<,0.3
-ghc-deps += jira-wiki-markup,>=,1.4,<<,1.5
-ghc-deps += lpeg,<<,1.1
-ghc-deps += network
-ghc-deps += network-uri,<<,2.8
-ghc-deps += pandoc-lua-marshal,<<,0.2
-ghc-deps += pandoc-types,>=,1.22.1,<<,1.23
-ghc-deps += pretty-show,>=,1.10,<<,1.11
-ghc-deps += random,<<,1.3
-ghc-deps += safe,<<,0.4
-ghc-deps += scientific,<<,0.4
-ghc-deps += skylighting,>=,0.12.3.1,<<,0.13
-ghc-deps += skylighting-core,>=,0.12.3.1,<<,0.13
-ghc-deps += split,<<,0.3
-ghc-deps += syb,<<,0.8
-ghc-deps += tagsoup,<<,0.15
-ghc-deps += temporary,<<,1.4
-ghc-deps += texmath,>=,0.12.4,<<,0.12.5
-ghc-deps += text-conversions,<<,0.4
-ghc-deps += unicode-collation,<<,0.2
-ghc-deps += unicode-transforms,<<,0.5
-ghc-deps += xml,<<,1.4
-ghc-deps += xml-conduit,>=,1.9.1.1,<<,1.10
-ghc-deps += yaml,>=,0.11,<<,0.12
-ghc-deps += zip-archive,<<,0.5
-ghc-deps += zlib,<<,0.7
-
-# Haskell dependencies for testsuite from pandoc.cabal
-ghc-deps-test += diff,<<,0.5
-ghc-deps-test += tasty,<<,1.5
-ghc-deps-test += tasty-golden,<<,2.4
-ghc-deps-test += tasty-hunit,<<,0.11
-ghc-deps-test += tasty-lua,>=,1,<<,1.1
-ghc-deps-test += tasty-quickcheck,<<,0.11
-
-# Haskell dependencies (maybe) needed for documentation
-# TODO: actually use these (not maintain Build-depends-indep by hand)
-ghc-deps-doc += ansi-terminal
-ghc-deps-doc += asn1-encoding
-ghc-deps-doc += asn1-parse
-ghc-deps-doc += asn1-types
-ghc-deps-doc += async
-ghc-deps-doc += base16-bytestring
-ghc-deps-doc += base-compat
-ghc-deps-doc += base-compat-batteries
-ghc-deps-doc += basement
-ghc-deps-doc += base-orphans
-ghc-deps-doc += blaze-builder
-ghc-deps-doc += cereal
-ghc-deps-doc += colour
-ghc-deps-doc += connection
-ghc-deps-doc += cookie
-ghc-deps-doc += cryptonite
-ghc-deps-doc += data-default-class
-ghc-deps-doc += data-default-instances-containers
-ghc-deps-doc += data-default-instances-dlist
-ghc-deps-doc += data-default-instances-old-locale
-ghc-deps-doc += digest
-ghc-deps-doc += dlist
-ghc-deps-doc += errors
-ghc-deps-doc += hashable
-ghc-deps-doc += hourglass
-ghc-deps-doc += hs-bibutils
-ghc-deps-doc += hsyaml
-ghc-deps-doc += hxt
-ghc-deps-doc += hxt-charproperties
-ghc-deps-doc += hxt-regex-xmlschema
-ghc-deps-doc += hxt-unicode
-ghc-deps-doc += integer-logarithms
-ghc-deps-doc += memory
-ghc-deps-doc += mime-types
-ghc-deps-doc += old-locale
-ghc-deps-doc += pcre-light
-ghc-deps-doc += pem
-ghc-deps-doc += primitive
-ghc-deps-doc += quickcheck2
-ghc-deps-doc += regex-base
-ghc-deps-doc += rts
-ghc-deps-doc += socks
-ghc-deps-doc += splitmix
-ghc-deps-doc += streaming-commons
-ghc-deps-doc += tagged
-ghc-deps-doc += th-abstraction
-ghc-deps-doc += time-compat
-ghc-deps-doc += tls
-ghc-deps-doc += transformers
-ghc-deps-doc += transformers-compat
-ghc-deps-doc += unicode-transforms
-ghc-deps-doc += utf8-string
-ghc-deps-doc += uuid-types
-ghc-deps-doc += x509
-ghc-deps-doc += x509-store
-ghc-deps-doc += x509-system
-ghc-deps-doc += x509-validation
-
-# Needed by upstream build process
-CDBS_BUILD_DEPENDS +=, ghc, ghc-prof, alex, happy
-CDBS_BUILD_DEPENDS += $(call expand-ghc-deps,dev,prof,$(ghc-deps))
-CDBS_BUILD_DEPENDS += $(call expand-ghc-deps,dev,,$(ghc-deps-test))
-CDBS_BUILD_DEPENDS_INDEP +=, ghc-doc
-CDBS_BUILD_DEPENDS_INDEP +=, $(call expand-ghc-deps,,doc,$(ghc-deps) $(ghc-deps-doc))
-
-# Needed for our packaging
-#  * recent haskell-devscripts needed for version-less datadir
-CDBS_BUILD_DEPENDS +=, haskell-devscripts
+LIB = $(firstword $(subst +, ,$(DEB_VERSION_UPSTREAM)))
 
 # Needed (always/often/seldom) at runtime
 #  texlive-* needed for PDF output
@@ -180,6 +36,13 @@ CDBS_SUGGESTS_$(pkg) +=, citation-style-language-styles
 # haddock: internal error: <stdout>: commitBuffer: invalid argument (invalid character)
 export LANG=C.UTF-8
 
+# Omit Lua scripting engine on unsupported architectures
+ifneq (,$(filter $(DEB_BUILD_ARCH),ppc64 ppc64el))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --flags=-lua
+else
+DEB_SETUP_GHC_CONFIGURE_ARGS += --flags=+lua
+endif
+
 # Use threaded RTS only when supported
 DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(wildcard /usr/lib/ghc-$(GHC_VERSION)/libHSrts_thr.a),,--flags=-threaded)
 
@@ -187,7 +50,7 @@ DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(wildcard /usr/lib/ghc-$(GHC_VERSION)/libH
 DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="+RTS -V0 -RTS"
 
 # Reduce compile-time memory utilization on low-memory architectures
-ifneq (,$(filter $(DEB_BUILD_ARCH),armel armhf hppa mips mipsel))
+ifneq (,$(filter $(DEB_BUILD_ARCH),armel armhf hppa loong64 mips mipsel))
 DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-optc--param -optcggc-min-expand=10 -O0"
 endif
 
@@ -199,9 +62,8 @@ DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(filter nocheck,$(DEB_BUILD_OPTIONS)),,-ft
 
 DEB_INSTALL_DOCS_ALL += README.md
 
-DEB_INSTALL_MANPAGES_$(pkg) = man/pandoc.1
+build/$(pkg):: build-ghc-stamp
 
-CDBS_BUILD_DEPENDS +=, bash-completion
 post-install/$(pkg)::
 	debian/tmp-inst-*/usr/bin/pandoc --bash-completion \
 		> debian/pandoc.bash-completion
@@ -210,4 +72,31 @@ binary-install/$(pkg)::
 clean::
 	rm -f debian/pandoc.bash-completion
 
-DEB_DH_GENCONTROL_ARGS_$(pkg) = -- -V"pandoc:Abi=$(ABI)"
+# populate project at root where haskell-devscripts can use it
+SRC_DATA = $(filter-out COPYING.md,\
+ $(notdir $(wildcard pandoc-cli/*)))
+pre-build::
+	rm -rf $(SRC_DATA)
+	cp --archive --target-directory=. $(addprefix pandoc-cli/,$(SRC_DATA))
+clean::
+	rm -rf $(SRC_DATA)
+
+DEB_DH_GENCONTROL_ARGS_$(pkg) = -- \
+ -V"pandoc:Abi=$(ABI)" \
+ -V"pandoc:Lib=$(LIB)"
+
+# generate man page only when built with Lua supprt
+ifeq (,$(filter $(DEB_BUILD_ARCH),ppc64 ppc64el))
+DEB_INSTALL_MANPAGES_$(pkg) = man/pandoc.1
+build/$(pkg):: man/pandoc.1
+man/pandoc.1: MANUAL.txt man/pandoc.1.before man/pandoc.1.after
+	dist-ghc/build/pandoc/pandoc $< -f markdown -t man -s \
+		--lua-filter man/manfilter.lua \
+		--include-before-body man/pandoc.1.before \
+		--include-after-body man/pandoc.1.after \
+		--metadata author="" \
+		--variable footer="pandoc $(LIB)" \
+		-o $@
+clean::
+	rm -f man/pandoc.1
+endif
