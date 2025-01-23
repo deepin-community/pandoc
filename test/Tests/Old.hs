@@ -1,6 +1,6 @@
 {- |
    Module      : Tests.Old
-   Copyright   : © 2006-2022 John MacFarlane
+   Copyright   : © 2006-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley@edu>
@@ -83,6 +83,11 @@ tests pandocPath =
     , test' "reader" ["-r", "textile", "-w", "native", "-s"]
       "textile-reader.textile" "textile-reader.native"
     ]
+  , testGroup "djot"
+    [ testGroup "writer" $ writerTests' "djot"
+    , test' "reader" ["-f", "djot", "-t" ,"native", "-s"]
+       "djot-reader.djot" "djot-reader.native"
+    ]
   , testGroup "docbook"
     [ testGroup "writer" $ writerTests' "docbook4"
     , test' "reader" ["-r", "docbook", "-w", "native", "-s"]
@@ -128,7 +133,10 @@ tests pandocPath =
     , fb2WriterTest' "testsuite" [] "testsuite.native" "writer.fb2"
     ]
   , testGroup "mediawiki"
-    [ testGroup "writer" $ writerTests' "mediawiki"
+    [ testGroup "writer" $ mconcat [
+      writerTests' "mediawiki"
+      , extWriterTests' "mediawiki"
+      ]
     , test' "reader" ["-r", "mediawiki", "-w", "native", "-s"]
       "mediawiki-reader.wiki" "mediawiki-reader.native"
     ]
@@ -160,11 +168,11 @@ tests pandocPath =
     [ test' "reader" ["-r", "t2t", "-w", "native", "-s"]
         "txt2tags.t2t" "txt2tags.native" ]
   , testGroup "epub" [
-      test' "features" ["-r", "epub", "-w", "native"]
+      test' "features" ["-r", "epub", "-w", "native", "-s"]
         "epub/features.epub" "epub/features.native"
-    , test' "wasteland" ["-r", "epub", "-w", "native"]
+    , test' "wasteland" ["-r", "epub", "-w", "native", "-s"]
         "epub/wasteland.epub" "epub/wasteland.native"
-    , test' "formatting" ["-r", "epub", "-w", "native"]
+    , test' "formatting" ["-r", "epub", "-w", "native", "-s"]
         "epub/formatting.epub" "epub/formatting.native"
     ]
   , testGroup "twiki"
@@ -175,7 +183,7 @@ tests pandocPath =
         "tikiwiki-reader.tikiwiki" "tikiwiki-reader.native" ]
   , testGroup "other writers" $ map (\f -> testGroup f $ writerTests' f)
     [ "opendocument" , "context" , "texinfo", "icml", "tei"
-    , "man" , "plain" , "asciidoc", "asciidoctor"
+    , "man" , "plain" , "asciidoc", "asciidoc_legacy"
     , "xwiki", "zimwiki"
     ]
   , testGroup "writers-lang-and-dir"
@@ -190,15 +198,17 @@ tests pandocPath =
   , testGroup "ms"
     [ testGroup "writer" $ writerTests' "ms"
     ]
+  , testGroup "typst"
+    [ testGroup "writer" $ writerTests' "typst" ++ extWriterTests' "typst"
+    , testGroup "reader"
+       [ test' "typst-reader" ["-r", "typst", "-w", "native", "-s"]
+          "typst-reader.typ" "typst-reader.native"
+       ]
+    ]
+
   , testGroup "creole"
     [ test' "reader" ["-r", "creole", "-w", "native", "-s"]
       "creole-reader.txt" "creole-reader.native"
-    ]
-  , testGroup "custom writer"
-    [ test' "basic" ["-f", "native", "-t", "../data/sample.lua"]
-      "testsuite.native" "writer.custom"
-    , test' "tables" ["-f", "native", "-t", "../data/sample.lua"]
-      "tables.native" "tables.custom"
     ]
   , testGroup "man"
     [ test' "reader" ["-r", "man", "-w", "native", "-s"]
@@ -211,6 +221,9 @@ tests pandocPath =
     ]
   , testGroup "rtf"
     [ testGroup "writer" $ writerTests' "rtf" ]
+  , testGroup "endnotexml"
+    [ test' "reader" ["-r", "endnotexml", "-w", "native", "-s"]
+        "endnotexml-reader.xml" "endnotexml-reader.native" ]
   , testGroup "ipynb"
     [ test' "reader" ["-f", "ipynb-raw_html-raw_tex+raw_attribute",
                       "-t", "native", "-s"]
@@ -229,6 +242,14 @@ tests pandocPath =
       "ipynb/rank.ipynb" "ipynb/rank.out.html"
     ]
   , testGroup "markua" [ testGroup "writer" $ writerTests' "markua"]
+  , testGroup "ansi"
+      [ test' "ansi" ["-f", "markdown", "-t", "ansi"]
+        "ansi-test.txt" "ansi-test.ansi"
+      ]
+  , testGroup "pod"
+      [ test' "pod" ["-f", "pod", "-t", "native"]
+        "pod-reader.pod" "pod-reader.native"
+      ]
   ]
  where
     test'           = test pandocPath
@@ -251,7 +272,7 @@ lhsWriterTests pandocPath format
     ]
   where
     t n f = test pandocPath
-             n ["--wrap=preserve", "-r", "native", "-s",
+             n ["--wrap=preserve", "-r", "native",
               "--markdown-headings=setext", "-w", f]
              "lhs-test.native" ("lhs-test" <.> f)
 

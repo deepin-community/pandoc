@@ -4,10 +4,10 @@
 {-# LANGUAGE RecordWildCards   #-}
 {- |
    Module      : Text.Pandoc.Readers.Org.Blocks
-   Copyright   : Copyright (C) 2014-2022 Albert Krewinkel
+   Copyright   : Copyright (C) 2014-2024 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
 
 Parsers for Org-mode block elements.
 -}
@@ -26,21 +26,23 @@ import Text.Pandoc.Readers.Org.Parsing
 import Text.Pandoc.Readers.Org.Shared (cleanLinkText, isImageFilename,
                                        originalLang, translateLang, exportsCode)
 
-import Text.Pandoc.Builder (Blocks, Inlines)
+import Text.Pandoc.Builder (Blocks, Inlines, Many(..))
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
 import Text.Pandoc.Shared (compactify, compactifyDL, safeRead)
 
-import Control.Monad (foldM, guard, mplus, mzero, void)
+import Control.Monad (foldM, guard, mzero, void)
+import Data.Bifunctor (bimap)
 import Data.Char (isSpace)
 import Data.Default (Default)
 import Data.Functor (($>))
-import Data.List (foldl', intersperse)
+import Data.List (find, foldl')
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Text (Text)
 import Data.List.NonEmpty (nonEmpty)
 import System.FilePath
+import qualified Data.Foldable as F
 import qualified Data.Text as T
 import qualified Text.Pandoc.Builder as B
 import qualified Text.Pandoc.Walk as Walk
@@ -97,7 +99,6 @@ horizontalRule = return B.horizontalRule <$ try hline
 -- | Attributes that may be added to figures (like a name or caption).
 data BlockAttributes = BlockAttributes
   { blockAttrName      :: Maybe Text
-  , blockAttrLabel     :: Maybe Text
   , blockAttrCaption   :: Maybe (F Inlines)
   , blockAttrKeyValues :: [(Text, Text)]
   }
@@ -129,13 +130,11 @@ blockAttributes = try $ do
   guard $ all (isBlockAttr . fst) kv
   let caption = foldl' (appendValues "caption") Nothing kv
   let kvAttrs = foldl' (appendValues "attr_html") Nothing kv
-  let name    = lookup "name" kv
-  let label   = lookup "label" kv
+  let name    = snd <$> find ((`elem` ["name", "label"]) . fst) (reverse kv)
   caption' <- traverse (parseFromString inlines . (<> "\n")) caption
   kvAttrs' <- parseFromString keyValues . (<> "\n") $ fromMaybe mempty kvAttrs
   return BlockAttributes
            { blockAttrName = name
-           , blockAttrLabel = label
            , blockAttrCaption = caption'
            , blockAttrKeyValues = kvAttrs'
            }
@@ -182,16 +181,25 @@ orgBlock = try $ do
   blkType <- blockHeaderStart
   ($ blkType) $
     case T.toLower blkType of
-      "export"  -> exportBlock
-      "comment" -> rawBlockLines (const mempty)
-      "html"    -> rawBlockLines (return . B.rawBlock (lowercase blkType))
-      "latex"   -> rawBlockLines (return . B.rawBlock (lowercase blkType))
-      "ascii"   -> rawBlockLines (return . B.rawBlock (lowercase blkType))
-      "example" -> exampleBlock blockAttrs
-      "quote"   -> parseBlockLines (fmap B.blockQuote)
-      "verse"   -> verseBlock
-      "src"     -> codeBlock blockAttrs
-      _         -> parseBlockLines $
+      "export"    -> exportBlock
+      "comment"   -> rawBlockLines (const mempty)
+      "html"      -> rawBlockLines (return . B.rawBlock (lowercase blkType))
+      "latex"     -> rawBlockLines (return . B.rawBlock (lowercase blkType))
+      "ascii"     -> rawBlockLines (return . B.rawBlock (lowercase blkType))
+      "example"   -> exampleBlock blockAttrs
+      "quote"     -> parseBlockLines (fmap B.blockQuote)
+      "verse"     -> verseBlock
+      "src"       -> codeBlock blockAttrs
+      "note"      -> admonitionBlock "note" blockAttrs
+      "warning"   -> admonitionBlock "warning" blockAttrs
+      "tip"       -> admonitionBlock "tip" blockAttrs
+      "caution"   -> admonitionBlock "caution" blockAttrs
+      "important" -> admonitionBlock "important" blockAttrs
+      _           ->
+        -- case-sensitive checks
+        case blkType of
+          "abstract" -> metadataBlock
+          _ -> parseBlockLines $
                    let (ident, classes, kv) = attrFromBlockAttributes blockAttrs
                    in fmap $ B.divWith (ident, classes ++ [blkType], kv)
  where
@@ -200,6 +208,16 @@ orgBlock = try $ do
 
    lowercase :: Text -> Text
    lowercase = T.toLower
+
+admonitionBlock :: PandocMonad m
+                => Text -> BlockAttributes -> Text -> OrgParser m (F Blocks)
+admonitionBlock blockType blockAttrs rawtext = do
+  bls <- parseBlockLines id rawtext
+  let id' = fromMaybe mempty $ blockAttrName blockAttrs
+  pure $ fmap
+    (B.divWith (id', [blockType], []) .
+     (B.divWith ("", ["title"], []) (B.para (B.str (T.toTitle blockType))) <>))
+    bls
 
 exampleBlock :: PandocMonad m => BlockAttributes -> Text -> OrgParser m (F Blocks)
 exampleBlock blockAttrs _label = do
@@ -226,13 +244,20 @@ parseBlockLines f blockType = ignHeaders *> (f <$> parsedBlockContent)
 rawBlockContent :: Monad m => Text -> OrgParser m Text
 rawBlockContent blockType = try $ do
   blkLines <- manyTill rawLine blockEnder
-  tabLen <- getOption readerTabStop
+  tabStop <- getOption readerTabStop
   trimP <- orgStateTrimLeadBlkIndent <$> getState
-  let stripIndent strs = if trimP then map (T.drop (shortestIndent strs)) strs else strs
-  (T.unlines
-   . stripIndent
-   . map (tabsToSpaces tabLen . commaEscaped)
-   $ blkLines)
+  -- split lines into indentation/contents tuples
+  let splitLines = map (T.span (\c -> c == ' ' || c == '\t')) blkLines
+  let countSpaces = T.foldr (\case {'\t' -> (tabStop +); _ -> (1 +)}) 0
+  let shortestIndent = foldr (min . countSpaces . fst) maxBound
+                     . filter (not . T.null . snd) -- ignore empty lines
+                     $ splitLines
+  let tabsToSpaces = T.replace "\t" (T.replicate tabStop " ")
+  let reIndent = if trimP
+                 then (T.drop shortestIndent . tabsToSpaces)
+                 else id
+
+  T.unlines (map (uncurry T.append . bimap reIndent commaEscaped) splitLines)
    <$ updateState (\s -> s { orgStateTrimLeadBlkIndent = True })
  where
    rawLine :: Monad m => OrgParser m Text
@@ -241,24 +266,11 @@ rawBlockContent blockType = try $ do
    blockEnder :: Monad m => OrgParser m ()
    blockEnder = try $ skipSpaces <* stringAnyCase ("#+end_" <> blockType)
 
-   shortestIndent :: [Text] -> Int
-   shortestIndent = foldr (min . T.length . T.takeWhile isSpace) maxBound
-                    . filter (not . T.null)
-
-   tabsToSpaces :: Int -> Text -> Text
-   tabsToSpaces tabStop t =
-     let (ind, suff) = T.span (\c -> c == ' ' || c == '\t') t
-         tabNum      = T.length $ T.filter (== '\n') ind
-         spaceNum    = T.length ind - tabNum
-     in  T.replicate (spaceNum + tabStop * tabNum) " " <> suff
-
-   commaEscaped t =
-     let (ind, suff) = T.span (\c -> c == ' ' || c == '\t') t
-     in  case T.uncons suff of
-           Just (',', cs)
-             | "*"  <- T.take 1 cs -> ind <> cs
-             | "#+" <- T.take 2 cs -> ind <> cs
-           _                       -> t
+   commaEscaped suff = case T.uncons suff of
+     Just (',', cs)
+       | "*"  <- T.take 1 cs -> cs
+       | "#+" <- T.take 2 cs -> cs
+     _                       -> suff
 
 -- | Read but ignore all remaining block headers.
 ignHeaders :: Monad m => OrgParser m ()
@@ -290,6 +302,16 @@ verseBlock blockType = try $ do
      line <- parseFromString inlines (indentedLine <> "\n")
      return (trimInlinesF $ pure nbspIndent <> line)
 
+-- | Parses an environment of the given name and adds the result to the document
+-- metadata under a key of the same name.
+metadataBlock :: PandocMonad m => Text -> OrgParser m (F Blocks)
+metadataBlock blockType = try $ do
+  content <- parseBlockLines id blockType
+  meta'   <- orgStateMeta <$> getState
+  updateState $ \st ->
+    st { orgStateMeta = B.setMeta blockType <$> content <*> meta' }
+  return mempty
+
 -- | Read a code block and the associated results block if present.  Which of
 -- the blocks is included in the output is determined using the "exports"
 -- argument in the block header.
@@ -300,7 +322,11 @@ codeBlock blockAttrs blockType = do
   content        <- rawBlockContent blockType
   resultsContent <- option mempty babelResultsBlock
   let identifier = fromMaybe mempty $ blockAttrName blockAttrs
-  let codeBlk    = B.codeBlockWith (identifier, classes, kv) content
+  let classes'   = case classes of
+                     c:cs | Just c' <- T.stripPrefix "jupyter-" c ->
+                            c' : "code" : cs
+                     _ -> classes
+  let codeBlk    = B.codeBlockWith (identifier, classes', kv) content
   let wrap       = maybe pure addCaption (blockAttrCaption blockAttrs)
   return $
     (if exportsCode kv    then wrap codeBlk   else mempty) <>
@@ -469,20 +495,14 @@ figure = try $ do
    imageBlock isFigure figAttrs imgSrc =
      let
        figName    = fromMaybe mempty $ blockAttrName figAttrs
-       figLabel   = fromMaybe mempty $ blockAttrLabel figAttrs
        figCaption = fromMaybe mempty $ blockAttrCaption figAttrs
        figKeyVals = blockAttrKeyValues figAttrs
-       attr       = (figLabel, mempty, figKeyVals)
+       attr       = (figName, mempty, figKeyVals)
      in if isFigure
-           then (\c ->
-               B.simpleFigureWith
-                   attr c imgSrc (unstackFig figName)) <$> figCaption
+           then (\c -> B.figureWith attr (B.simpleCaption (B.plain c))
+                       (B.plain $ B.image imgSrc "" mempty))
+                <$> figCaption
            else B.para . B.imageWith attr imgSrc figName <$> figCaption
-   unstackFig :: Text -> Text
-   unstackFig figName =
-       if "fig:" `T.isPrefixOf` figName
-           then T.drop 4 figName
-           else figName
 
 -- | Succeeds if looking at the end of the current paragraph
 endOfParagraph :: Monad m => OrgParser m ()
@@ -509,7 +529,13 @@ exampleCode = B.codeBlockWith ("", ["example"], [])
 --
 
 specialLine :: PandocMonad m => OrgParser m (F Blocks)
-specialLine = fmap return . try $ rawExportLine <|> metaLine <|> commentLine
+specialLine = fmap return . try $
+  rawExportLine <|> printbibliographyLine <|> metaLine <|> commentLine
+
+printbibliographyLine :: PandocMonad m => OrgParser m Blocks
+printbibliographyLine = do
+  try $ skipSpaces <* string "#+print_bibliography:" <* anyLine
+  return $ B.divWith ("refs",[],[]) mempty
 
 -- | Include the content of a file.
 include :: PandocMonad m => OrgParser m (F Blocks)
@@ -529,8 +555,15 @@ include = try $ do
         return $ pure . B.codeBlockWith attr <$> parseRaw
       _ -> return $ return . B.fromList . blockFilter params <$> blockList
   currentDir <- takeDirectory . sourceName <$> getPosition
+  let (startLine, endLine) =
+        case lookup "lines" params of
+          Nothing -> (Nothing, Nothing)
+          Just bounds -> let boundStr = T.drop 1 (T.dropEnd 1 bounds)
+                             begStr = T.takeWhile (/= '-') boundStr
+                             endStr = T.takeWhileEnd (/= '-') boundStr
+                         in (safeRead begStr, pred <$> safeRead endStr)
   insertIncludedFile blocksParser toSources
-                     [currentDir] filename Nothing Nothing
+                     [currentDir] filename startLine endLine
  where
   includeTarget :: PandocMonad m => OrgParser m FilePath
   includeTarget = do
@@ -609,44 +642,50 @@ data OrgTable = OrgTable
   }
 
 table :: PandocMonad m => OrgParser m (F Blocks)
-table = do
-  withTables <- getExportSetting exportWithTables
-  tbl <- gridTableWith blocks True <|> orgTable
-  return $ if withTables then tbl else mempty
-
--- | A normal org table
-orgTable :: PandocMonad m => OrgParser m (F Blocks)
-orgTable = try $ do
+table = try $ do
   -- don't allow a table on the first line of a list item; org requires that
   -- tables start at first non-space character on the line
   let isFirstInListItem st = orgStateParserContext st == ListItemState &&
                              isNothing (orgStateLastPreCharPos st)
   guard . not . isFirstInListItem =<< getState
   blockAttrs <- blockAttributes
+  let identMb = blockAttrName blockAttrs
+  tbl <- gridTableWith blocks <|> orgTable
+  withTables <- getExportSetting exportWithTables
+  return $ if withTables
+              then do
+                xs <- unMany <$> tbl
+                case F.toList xs of
+                  [Table _ _ cs th tb tf] -> do
+                    capt <- case blockAttrCaption blockAttrs of
+                              Nothing -> pure $ Caption Nothing []
+                              Just ils -> do
+                                ils' <- ils
+                                pure $ B.simpleCaption . B.plain $ ils'
+                    let attr = (fromMaybe mempty identMb, [],
+                                 blockAttrKeyValues blockAttrs)
+                    pure $ B.tableWith attr capt cs th tb tf
+                  _ -> tbl   -- should not happen
+              else mempty
+
+-- | A normal org table
+orgTable :: PandocMonad m => OrgParser m (F Blocks)
+orgTable = do
   lookAhead tableStart
   rows <- tableRows
-
-  let caption = fromMaybe mempty (blockAttrCaption blockAttrs)
   let orgTbl = normalizeTable <$> rowsToTable rows
-  -- wrap table in div if a name or label is given
-  let identMb = blockAttrName blockAttrs `mplus` blockAttrLabel blockAttrs
-  let wrap = case identMb of
-        Just ident -> B.divWith (ident, mempty, mempty)
-        Nothing    -> id
-  return . fmap wrap $ (orgToPandocTable <$> orgTbl <*> caption)
+  return $ orgToPandocTable <$> orgTbl
 
-orgToPandocTable :: OrgTable
-                 -> Inlines
-                 -> Blocks
-orgToPandocTable (OrgTable colProps heads lns) caption =
+orgToPandocTable :: OrgTable -> Blocks
+orgToPandocTable (OrgTable colProps heads lns) =
   let totalWidth = if any (isJust . columnRelWidth) colProps
                    then Just . sum $ map (fromMaybe 1 . columnRelWidth) colProps
                    else Nothing
-  in B.table (B.simpleCaption $ B.plain caption)
-             (map (convertColProp totalWidth) colProps)
-             (TableHead nullAttr $ toHeaderRow heads)
-             [TableBody nullAttr 0 [] $ map toRow lns]
-             (TableFoot nullAttr [])
+  in B.tableWith nullAttr (Caption Nothing mempty)
+                 (map (convertColProp totalWidth) colProps)
+                 (TableHead nullAttr $ toHeaderRow heads)
+                 [TableBody nullAttr 0 [] $ map toRow lns]
+                 (TableFoot nullAttr [])
  where
    toRow = Row nullAttr . map B.simpleCell
    toHeaderRow l = [toRow l | not (null l)]
@@ -664,7 +703,7 @@ tableRows = try $ many (tableAlignRow <|> tableHline <|> tableContentRow)
 
 tableContentRow :: PandocMonad m => OrgParser m OrgTableRow
 tableContentRow = try $
-  OrgContentRow . sequence <$> (tableStart *> many1Till tableContentCell newline)
+  OrgContentRow . sequence <$> (tableStart *> manyTill tableContentCell newline)
 
 tableContentCell :: PandocMonad m => OrgParser m (F Blocks)
 tableContentCell = try $
@@ -760,19 +799,17 @@ latexFragment = try $ do
   texOpt  <- getExportSetting exportWithLatex
   let envStart = "\\begin{" <> envName <> "}"
   let envEnd = "\\end{" <> envName <> "}"
-  envLines <- do
-    content <- manyTill anyLine (latexEnd envName)
-    return $ envStart : content ++ [envEnd]
+  envContent <- do
+    content <- manyTillChar anyChar (latexEnd envName)
+    return $ envStart <> content <> envEnd
   returnF $ case texOpt of
-    TeXExport -> B.rawBlock "latex" . T.unlines $ envLines
+    TeXExport -> B.rawBlock "latex" (envContent <> "\n")
     TeXIgnore   -> mempty
-    TeXVerbatim -> B.para . mconcat . intersperse B.softbreak $
-                   map B.str envLines
+    TeXVerbatim -> B.para . B.text $ envContent
  where
   latexEnd :: Monad m => Text -> OrgParser m ()
   latexEnd envName = try . void
-     $ skipSpaces
-    <* textStr ("\\end{" <> envName <> "}")
+     $ textStr ("\\end{" <> envName <> "}")
     <* blankline
 
 
@@ -835,11 +872,8 @@ indented indentedMarker minIndent = try $ do
 orderedList :: PandocMonad m => OrgParser m (F Blocks)
 orderedList = try $ do
   (indent, attr) <- lookAhead orderedListStart
-  attr' <- option (fst3 attr, DefaultStyle, DefaultDelim) $
-           guardEnabled Ext_fancy_lists $> attr
-  fmap (B.orderedListWith attr' . compactify) . sequence
+  fmap (B.orderedListWith attr . compactify) . sequence
     <$> many1 (listItem ((fst <$> orderedListStart) `indented` indent))
-  where fst3 (x,_,_) = x
 
 definitionListItem :: PandocMonad m
                    => OrgParser m Int

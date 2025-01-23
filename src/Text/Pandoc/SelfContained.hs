@@ -1,8 +1,10 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE TupleSections     #-}
 {- |
    Module      : Text.Pandoc.SelfContained
-   Copyright   : Copyright (C) 2011-2022 John MacFarlane
+   Copyright   : Copyright (C) 2011-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -16,24 +18,32 @@ the HTML using data URIs.
 module Text.Pandoc.SelfContained ( makeDataURI, makeSelfContained ) where
 import Codec.Compression.GZip as Gzip
 import Control.Applicative ((<|>))
-import Control.Monad.Trans (lift)
 import Data.ByteString (ByteString)
-import Data.ByteString.Base64
+import Data.ByteString.Base64 (encode)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy as L
 import qualified Data.Text as T
 import Data.Char (isAlphaNum, isAscii)
+import Crypto.Hash (hashWith, SHA1(SHA1))
 import Network.URI (escapeURIString)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import Text.HTML.TagSoup
 import Text.Pandoc.Class.PandocMonad (PandocMonad (..), fetchItem,
                                       getInputFiles, report, setInputFiles)
 import Text.Pandoc.Logging
+import Text.Pandoc.Error (PandocError(..))
 import Text.Pandoc.MIME (MimeType)
-import Text.Pandoc.Shared (isURI, renderTags', trim)
+import Text.Pandoc.Shared (renderTags', trim, tshow, safeRead)
+import Text.Pandoc.URI (isURI)
 import Text.Pandoc.UTF8 (toString, toText, fromText)
-import Text.Parsec (ParsecT, runParserT)
-import qualified Text.Parsec as P
+import Text.Pandoc.Parsing (ParsecT, runParserT)
+import qualified Text.Pandoc.Parsing as P
+import Control.Monad.Except (throwError, catchError)
+import Data.Either (lefts, rights)
+import Data.Maybe (isNothing)
+import qualified Data.Map as M
+import Control.Monad.State
+-- import Debug.Trace
 
 isOk :: Char -> Bool
 isOk c = isAscii c && isAlphaNum c
@@ -42,8 +52,11 @@ makeDataURI :: (MimeType, ByteString) -> T.Text
 makeDataURI (mime, raw) =
   if textual
      then "data:" <> mime' <> "," <> T.pack (escapeURIString isOk (toString raw))
-     else "data:" <> mime' <> ";base64," <> toText (encode raw)
+     else "data:" <> mime' <> ";base64," <> toText (encode raw')
   where textual = "text/" `T.isPrefixOf` mime
+        raw' = if "+xml" `T.isSuffixOf` mime
+                  then B.filter (/= '\r') raw  -- strip off CRs
+                  else raw
         mime' = if textual && T.any (== ';') mime
                    then mime <> ";charset=utf-8"
                    else mime  -- mime type already has charset
@@ -56,11 +69,26 @@ isSourceAttribute tagname (x,_) =
   x == "poster" ||
   x == "data-background-image"
 
-convertTags :: PandocMonad m => [Tag T.Text] -> m [Tag T.Text]
+data ConvertState =
+  ConvertState
+  { isHtml5 :: Bool
+  , svgMap  :: M.Map T.Text (T.Text, [Attribute T.Text])
+    -- map from hash to (id, svg attributes)
+  } deriving (Show)
+
+convertTags :: PandocMonad m =>
+               [Tag T.Text] -> StateT ConvertState m [Tag T.Text]
 convertTags [] = return []
 convertTags (t@TagOpen{}:ts)
   | fromAttrib "data-external" t == "1" = (t:) <$> convertTags ts
-convertTags (t@(TagOpen "script" as):TagClose "script":ts) =
+convertTags (t@(TagOpen "style" _):ts) =
+  case span isTagText ts of
+    (xs,rest) -> do
+      xs' <- mapM (\case
+                    TagText s -> TagText . toText <$> cssURLs "" (fromText s)
+                    tag -> return tag) xs
+      ((t:xs') ++) <$> convertTags rest
+convertTags (t@(TagOpen "script" as):tc@(TagClose "script"):ts) =
   case fromAttrib "src" t of
        ""  -> (t:) <$> convertTags ts
        src -> do
@@ -68,10 +96,10 @@ convertTags (t@(TagOpen "script" as):TagClose "script":ts) =
            res <- getData typeAttr src
            rest <- convertTags ts
            case res of
-                Left dataUri -> return $ TagOpen "script"
+                AlreadyDataURI dataUri -> return $ TagOpen "script"
                      (("src",dataUri) : [(x,y) | (x,y) <- as, x /= "src"]) :
                      TagClose "script" : rest
-                Right (mime, bs)
+                Fetched (mime, bs)
                   | ("text/javascript" `T.isPrefixOf` mime ||
                      "application/javascript" `T.isPrefixOf` mime ||
                      "application/x-javascript" `T.isPrefixOf` mime) &&
@@ -86,19 +114,21 @@ convertTags (t@(TagOpen "script" as):TagClose "script":ts) =
                          (("src",makeDataURI (mime, bs)) :
                           [(x,y) | (x,y) <- as, x /= "src"]) :
                         TagClose "script" : rest
+                CouldNotFetch _ -> return $ t:tc:rest
 convertTags (t@(TagOpen "link" as):ts) =
   case fromAttrib "href" t of
        ""  -> (t:) <$> convertTags ts
        src -> do
            res <- getData (fromAttrib "type" t) src
            case res of
-                Left dataUri -> do
+                AlreadyDataURI dataUri -> do
                   rest <- convertTags ts
                   return $ TagOpen "link"
                      (("href",dataUri) : [(x,y) | (x,y) <- as, x /= "href"]) :
                      rest
-                Right (mime, bs)
-                  | "text/css" `T.isPrefixOf` mime
+                Fetched (mime, bs)
+                  | ("text/css" `T.isPrefixOf` mime ||
+                      fromAttrib "rel" t == "stylesheet")
                     && T.null (fromAttrib "media" t)
                     && not ("</" `B.isInfixOf` bs) -> do
                       rest <- convertTags $
@@ -113,19 +143,150 @@ convertTags (t@(TagOpen "link" as):ts) =
                       return $ TagOpen "link"
                        (("href",makeDataURI (mime, bs)) :
                          [(x,y) | (x,y) <- as, x /= "href"]) : rest
+                CouldNotFetch _ -> do
+                      rest <- convertTags ts
+                      return $ t:rest
 convertTags (t@(TagOpen tagname as):ts)
   | any (isSourceAttribute tagname) as
      = do
-       as' <- mapM processAttribute as
+       let inlineSvgs = tagname == "img" &&
+                        case T.words <$> lookup "class" as of
+                          Nothing -> False
+                          Just cs -> "inline-svg" `elem` cs
+       as' <- mapM (processAttribute inlineSvgs) as
+       let attrs = addRole "img" $ addAriaLabel $ rights as'
+       let svgContents = lefts as'
        rest <- convertTags ts
-       return $ TagOpen tagname as' : rest
-  where processAttribute (x,y) =
+       case svgContents of
+         [] -> return $ TagOpen tagname attrs : rest
+         ((hash, tags) : _) -> do
+             -- drop "</img>" if present
+             let rest' = case rest of
+                           TagClose tn : xs | tn == tagname ->  xs
+                           _ -> rest
+             svgmap <- gets svgMap
+             case M.lookup hash svgmap of
+               Just (svgid, svgattrs) -> do
+                 let attrs' = [(k,v) | (k,v) <- combineSvgAttrs svgattrs attrs
+                                     , k /= "id"]
+                 return $ TagOpen "svg" attrs' :
+                          TagOpen "use" [("href", "#" <> svgid),
+                                         ("width", "100%"),
+                                         ("height", "100%")] :
+                          TagClose "use" :
+                          TagClose "svg" :
+                          rest'
+               Nothing ->
+                  case dropWhile (not . isTagOpenName "svg") tags of
+                    TagOpen "svg" svgattrs : tags' -> do
+                      let attrs' = combineSvgAttrs svgattrs attrs
+                      let svgid = case lookup "id" attrs' of
+                                     Just id' -> id'
+                                     Nothing -> "svg_" <> hash
+                      let attrs'' = ("id", svgid) :
+                                    [(k,v) | (k,v) <- attrs', k /= "id"]
+                      modify $ \st ->
+                        st{ svgMap = M.insert hash (svgid, attrs'') (svgMap st) }
+                      let fixUrl x =
+                            case T.breakOn "url(#" x of
+                              (_,"") -> x
+                              (before, after) -> before <>
+                                  "url(#" <> svgid <> "_" <> T.drop 5 after
+                      let addIdPrefix ("id", x) = ("id", svgid <> "_" <> x)
+                          addIdPrefix (k, x)
+                           | k == "xlink:href" || k == "href" =
+                            case T.uncons x of
+                              Just ('#', x') -> (k, "#" <> svgid <> "_" <> x')
+                              _ -> (k, x)
+                          -- this clause handles things like
+                          -- style="fill:url(#radialGradient46);stroke:none",
+                          -- adding the svg id prefix to the anchor:
+                          addIdPrefix (k, x) = (k, fixUrl x)
+                      let ensureUniqueId (TagOpen tname ats) =
+                            TagOpen tname (map addIdPrefix ats)
+                          ensureUniqueId x = x
+                      return $ TagOpen "svg" attrs'' :
+                                 map ensureUniqueId tags' ++ rest'
+                    _ -> return $ TagOpen tagname attrs : rest
+  where processAttribute inlineSvgs (x,y) =
            if isSourceAttribute tagname (x,y)
               then do
-                enc <- getDataURI (fromAttrib "type" t) y
-                return (x, enc)
-              else return (x,y)
+                res <- getData (fromAttrib "type" t) y
+                case res of
+                  AlreadyDataURI enc -> return $ Right (x, enc)
+                  Fetched ("image/svg+xml", bs) | inlineSvgs -> do
+                    -- we filter CR in the hash to ensure that Windows
+                    -- and non-Windows tests agree:
+                    let hash = T.pack $ take 20 $ show $ hashWith SHA1
+                                             $ B.filter (/='\r') bs
+                    return $ Left (hash, getSvgTags (toText bs))
+                  Fetched (mt,bs) -> return $ Right (x, makeDataURI (mt,bs))
+                  CouldNotFetch _ -> return $ Right (x, y)
+              else return $ Right (x,y)
+
 convertTags (t:ts) = (t:) <$> convertTags ts
+
+addRole :: T.Text -> [(T.Text, T.Text)] -> [(T.Text, T.Text)]
+addRole role attrs =
+  case lookup "role" attrs of
+    Nothing -> ("role", role) : attrs
+    Just _ -> attrs
+
+addAriaLabel :: [(T.Text, T.Text)] -> [(T.Text, T.Text)]
+addAriaLabel attrs =
+  case lookup "aria-label" attrs of
+    Just _ -> attrs
+    Nothing -> case lookup "alt" attrs of
+                 Just alt -> ("aria-label", alt) : attrs
+                 Nothing -> attrs
+
+-- we want to drop spaces, <?xml>, and comments before <svg>
+-- and anything after </svg>:
+getSvgTags :: T.Text -> [Tag T.Text]
+getSvgTags t =
+  case takeWhile (not . isTagCloseName "svg") .
+       dropWhile (not . isTagOpenName "svg") $ parseTags t of
+    [] -> []
+    xs -> xs ++ [TagClose "svg"]
+
+combineSvgAttrs :: [(T.Text, T.Text)] -> [(T.Text, T.Text)] -> [(T.Text, T.Text)]
+combineSvgAttrs svgAttrs imgAttrs =
+  case (mbViewBox, mbHeight, mbWidth) of
+    (Nothing, Just h, Just w) -> -- calculate viewBox
+      combinedAttrs ++ [("viewBox", T.unwords ["0", "0", tshow w, tshow h])]
+    (Just (_minx,_miny,w,h), Nothing, Nothing) ->
+        combinedAttrs ++
+        [ ("width", dropPointZero (tshow w)) |
+            isNothing (lookup "width" combinedAttrs) ] ++
+        [ ("height", dropPointZero (tshow h)) |
+            isNothing (lookup "height" combinedAttrs) ]
+    _ -> combinedAttrs
+ where
+  dropPointZero t = case T.stripSuffix ".0" t of
+                       Nothing -> t
+                       Just t' -> t'
+  combinedAttrs =
+    [(k, v) | (k, v) <- imgAttrs
+            , k /= "class"] ++
+    [(k, v) | (k, v) <- svgAttrs
+            , isNothing (lookup k imgAttrs)
+            , k `notElem` ["xmlns", "xmlns:xlink", "version", "class"]] ++
+    mergedClasses
+  parseViewBox t =
+    case map (safeRead . addZero) $ T.words t of
+      [Just llx, Just lly, Just urx, Just ury] -> Just (llx, lly, urx, ury)
+      _ -> Nothing
+  addZero t =
+    if "-." `T.isPrefixOf` t
+       then "-0." <> T.drop 2 t -- safeRead fails on -.33, needs -0.33
+       else t
+  (mbViewBox :: Maybe (Double, Double, Double, Double)) =
+        lookup "viewBox" svgAttrs >>= parseViewBox
+  (mbHeight :: Maybe Int) = lookup "height" combinedAttrs >>= safeRead
+  (mbWidth :: Maybe Int) = lookup "width" combinedAttrs >>= safeRead
+  mergedClasses = case (lookup "class" imgAttrs, lookup "class" svgAttrs) of
+                    (Just c1, Just c2) -> [("class", c1 <> " " <> c2)]
+                    _ -> []
 
 cssURLs :: PandocMonad m
         => FilePath -> ByteString -> m ByteString
@@ -213,8 +374,8 @@ handleCSSUrl d (url, fallback) =
       u ->  do let url' = if isURI (T.pack u) then T.pack u else T.pack (d </> u)
                res <- lift $ getData "" url'
                case res of
-                    Left uri -> return $ Left (fromText $ "url(" <> uri <> ")")
-                    Right (mt', raw) -> do
+                    AlreadyDataURI uri -> return $ Left (fromText $ "url(" <> uri <> ")")
+                    Fetched (mt', raw) -> do
                       -- note that the downloaded CSS may
                       -- itself contain url(...).
                       (mt, b) <- if "text/css" `T.isPrefixOf` mt'
@@ -223,20 +384,22 @@ handleCSSUrl d (url, fallback) =
                                     then ("text/css",) <$> cssURLs d raw
                                     else return (mt', raw)
                       return $ Right (mt, b)
+                    CouldNotFetch _ -> return $ Left fallback
 
-getDataURI :: PandocMonad m => MimeType -> T.Text -> m T.Text
-getDataURI mimetype src = do
-  res <- getData mimetype src
-  case res of
-       Left uri -> return uri
-       Right x  -> return $ makeDataURI x
+data GetDataResult =
+    AlreadyDataURI T.Text
+  | CouldNotFetch PandocError
+  | Fetched (MimeType, ByteString)
+  deriving (Show)
 
 getData :: PandocMonad m
         => MimeType -> T.Text
-        -> m (Either T.Text (MimeType, ByteString))
+        -> m GetDataResult
 getData mimetype src
-  | "data:" `T.isPrefixOf` src = return $ Left src -- already data: uri
-  | otherwise = do
+  | "data:" `T.isPrefixOf` src = return $ AlreadyDataURI src -- already data: uri
+  | otherwise = catchError fetcher handler
+ where
+   fetcher = do
       let ext = T.toLower $ T.pack $ takeExtension $ T.unpack src
       (raw, respMime) <- fetchItem src
       let raw' = if ext `elem` [".gz", ".svgz"]
@@ -254,7 +417,16 @@ getData mimetype src
                   setInputFiles oldInputs
                   return res
                else return raw'
-      return $ Right (mime, result)
+      return $ Fetched (mime, result)
+   handler e = case e of
+                 PandocResourceNotFound r -> do
+                   report $ CouldNotFetchResource r ""
+                   return $ CouldNotFetch e
+                 PandocHttpError u er -> do
+                   report $ CouldNotFetchResource u (tshow er)
+                   return $ CouldNotFetch e
+                 _ -> throwError e
+
 
 
 
@@ -263,5 +435,10 @@ getData mimetype src
 makeSelfContained :: PandocMonad m => T.Text -> m T.Text
 makeSelfContained inp = do
   let tags = parseTags inp
-  out' <- convertTags tags
+  let html5 = case tags of
+                  (TagOpen "!DOCTYPE" [("html","")]:_) -> True
+                  _ -> False
+  let convertState = ConvertState { isHtml5 = html5,
+                                    svgMap = mempty }
+  out' <- evalStateT (convertTags tags) convertState
   return $ renderTags' out'

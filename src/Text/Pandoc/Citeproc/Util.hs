@@ -48,6 +48,7 @@ toIETF "germanb"         = "de-DE"
 toIETF "ngerman"         = "de-DE"
 toIETF "greek"           = "el-GR"
 toIETF "polutonikogreek" = "el-GR"
+toIETF "polytonicgreek"  = "el-GR"
 toIETF "hebrew"          = "he-IL"
 toIETF "hungarian"       = "hu-HU"
 toIETF "icelandic"       = "is-IS"
@@ -79,4 +80,3 @@ toIETF "ukrainian"       = "uk-UA"
 toIETF "vietnamese"      = "vi-VN"
 toIETF "latin"           = "la"
 toIETF x                 = x
-

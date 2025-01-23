@@ -76,6 +76,64 @@ ensuring backwards compatibility.
 [patterns]: http://lua-users.org/wiki/PatternsTutorial
 [lpeg]: http://www.inf.puc-rio.br/~roberto/lpeg/
 
+# Bytestring readers
+
+In order to read binary formats, including docx, odt, and epub,
+pandoc supports the `ByteStringReader` function. A
+`ByteStringReader` function is similar to the `Reader` function
+that processes text input. Instead of a list of sources, the
+ByteStringReader function is passed a bytestring, i.e., a string
+that contains the binary input.
+
+``` lua
+-- read input as epub
+function ByteStringReader (input)
+  return pandoc.read(input, 'epub')
+end
+```
+
+# Format extensions
+
+Custom readers can be built such that their behavior is
+controllable through format extensions, such as `smart`,
+`citations`, or `hard-line-breaks`. Supported extensions are those
+that are present as a key in the global `Extensions` table. Fields
+of extensions that are enabled default have the value `true` or
+`enable`, while those that are supported but disabled have value
+`false` or `disable`.
+
+Example: A writer with the following global table supports the
+extensions `smart`, `citations`, and `foobar`, with `smart` enabled and
+the other two disabled by default:
+
+``` lua
+Extensions = {
+  smart = 'enable',
+  citations = 'disable',
+  foobar = true
+}
+```
+
+The users control extensions as usual, e.g., `pandoc -f
+my-reader.lua+citations`. The extensions are accessible through
+the reader options' `extensions` field, e.g.:
+
+``` lua
+function Reader (input, opts)
+  print(
+    'The citations extension is',
+    opts.extensions:includes 'citations' and 'enabled' or 'disabled'
+  )
+  -- ...
+end
+```
+
+Extensions that are neither enabled nor disabled in the
+`Extensions` field are treated as unsupported by the
+reader. Trying to modify such an extension via the command line
+will lead to an error.
+
+
 # Example: plain text reader
 
 This is a simple example using [lpeg] to parse the input
@@ -157,223 +215,6 @@ except paragraph breaks.
     , Str "one."
     ]
 ]
-```
-
-# Example: a RIS bibliography reader
-
-This is a parser for [RIS bibliography] files.  It can be used
-to convert them to CSL JSON or YAML, BibTeX, or BibLaTeX.
-
-[RIS bibliography]: https://en.wikipedia.org/wiki/RIS_(file_format)
-
-```lua
--- A sample custom reader for RIS bibliography format
--- https://en.wikipedia.org/wiki/RIS_(file_format)
--- The references are converted to inline pandoc/CSL YAML
--- references in the metadata.
-
-local inspect = require"inspect"
-
-local types =
-  { ABST = "article",
-    ADVS = "motion-picture",
-    AGGR = "dataset",
-    ANCIENT = "book",
-    ART = "graphic",
-    BILL = "bill",
-    BLOG = "post-weblog",
-    BOOK = "book",
-    CASE = "legal_case",
-    CHAP = "chapter",
-    CHART = "graphic",
-    CLSWK = "book",
-    COMP = "program",
-    CONF = "paper-conference",
-    CPAPER = "paper-conference",
-    CTLG = "catalog",
-    DATA = "dataset",
-    DBASE = "dataset",
-    DICT = "book",
-    EBOOK = "book",
-    ECHAP = "chapter",
-    EDBOOK = "book",
-    EJOUR = "article",
-    WEB = "webpage",
-    ENCYC = "entry-encyclopedia",
-    EQUA = "figure",
-    FIGURE = "figure",
-    GEN = "entry",
-    GOVDOC = "report",
-    GRANT = "report",
-    HEAR = "report",
-    ICOMM = "personal_communication",
-    INPR = "article-journal",
-    JFULL = "article-journal",
-    JOUR = "article-journal",
-    LEGAL = "legal_case",
-    MANSCPT = "manuscript",
-    MAP = "map",
-    MGZN = "article-magazine",
-    MPCT = "motion-picture",
-    MULTI = "webpage",
-    MUSIC = "musical_score",
-    NEWS = "article-newspaper",
-    PAMP = "pamphlet",
-    PAT = "patent",
-    PCOMM = "personal_communication",
-    RPRT = "report",
-    SER = "article",
-    SLIDE = "graphic",
-    SOUND = "musical_score",
-    STAND = "report",
-    STAT = "legislation",
-    THES = "thesis",
-    UNBILL = "bill",
-    UNPB = "unpublished",
-    VIDEO = "graphic"
-  }
-
-local function clean(refpairs)
-  local ref = {}
-  for i = 1, #refpairs do
-    local k,v = table.unpack(refpairs[i])
-    if k == "TY" then
-      ref["type"] = types[v]
-    elseif k == "VL" then
-      ref.volume = v
-    elseif k == "KW" then
-      ref.keyword = v
-    elseif k == "PB" then
-      ref.publisher = v
-    elseif k == "CY" or k == "PP" then
-      ref["publisher-place"] = v
-    elseif k == "SP" then
-      if ref.page then
-        ref.page = v .. ref.page
-      else
-        ref.page = v
-      end
-    elseif k == "EP" then
-      if ref.page then
-        ref.page = ref.page .. "-" .. v
-      else
-        ref.page = "-" .. v
-      end
-    elseif k == "AU" or k == "A1" or k == "A2" or k == "A3" then
-      if ref.author then
-        table.insert(ref.author, v)
-      else
-        ref.author = {v}
-      end
-    elseif k == "TI" or k == "T1" or k == "CT" or
-            (k == "BT" and ref.type == "book") then
-      ref.title = v
-    elseif k == "ET" then
-      ref.edition = v
-    elseif k == "NV" then
-      ref["number-of-volumes"] = v
-    elseif k == "AB" then
-      ref.abstract = v
-    elseif k == "ED" then
-      if ref.editor then
-        table.insert(ref.editor, v)
-      else
-        ref.editor = {v}
-      end
-    elseif k == "JO" or k == "JF" or k == "T2" or
-             (k == "BT" and ref.type ~= "book") then
-      ref["container-title"] = v
-    elseif k == "PY" or k == "Y1" then
-      ref.issued = v
-    elseif k == "IS" then
-      ref.issue = v
-    elseif k == "SN" then
-      ref.ISSN = v
-    elseif k == "L" then
-      ref.lang = v
-    elseif k == "UR" or k == "LK" then
-      ref.URL = v
-    end
-  end
-  return ref
-end
-
-function Reader(input, reader_options)
-  local refs = {}
-  local thisref = {}
-  local ids = {}
-  for line in string.gmatch(tostring(input), "[^\n]*") do
-    key, val = string.match(line, "([A-Z][A-Z0-9])  %- (.*)")
-    if key == "ER" then
-      -- clean up fields
-      local newref = clean(thisref)
-      -- ensure we have an id and if not, create a sensible one
-      if not newref.id then
-        newref.id = ""
-        for _,x in ipairs(newref.author) do
-          newref.id = newref.id .. string.match(pandoc.utils.stringify(x), "%a+")
-        end
-        if newref.issued then
-          newref.id = newref.id .. string.match(newref.issued, "%d+")
-        end
-        if ids[newref.id] then -- add disambiguator if needed
-          newref.id = newref.id .. "-" .. #ids
-        end
-      end
-      table.insert(ids, newref.id)
-      table.insert(refs, newref)
-      thisref = {}
-    elseif key then
-      table.insert(thisref, {key, val})
-    end
-  end
-  return pandoc.Pandoc({}, pandoc.Meta { references = refs } )
-end
-```
-
-Example of use:
-
-```
-% pandoc -f ris.lua -t bibtex
-TY  - JOUR
-AU  - Shannon, Claude E.
-PY  - 1948
-DA  - July
-TI  - A Mathematical Theory of Communication
-T2  - Bell System Technical Journal
-SP  - 379
-EP  - 423
-VL  - 27
-ER  - 
-TY  - JOUR
-T1  - On computable numbers, with an application to the Entscheidungsproblem
-A1  - Turing, Alan Mathison
-JO  - Proc. of London Mathematical Society
-VL  - 47
-IS  - 1
-SP  - 230
-EP  - 265
-Y1  - 1937
-ER  - 
-^D
-@article{Shannon1948,
-  author = {Shannon, Claude E.},
-  title = {A {Mathematical} {Theory} of {Communication}},
-  journal = {Bell System Technical Journal},
-  volume = {27},
-  pages = {379-423},
-  year = {1948}
-}
-@article{Turing1937,
-  author = {Turing, Alan Mathison},
-  title = {On Computable Numbers, with an Application to the
-    {Entscheidungsproblem}},
-  journal = {Proc. of London Mathematical Society},
-  volume = {47},
-  number = {1},
-  pages = {230-265},
-  year = {1937}
-}
 ```
 
 # Example: a wiki Creole reader
@@ -616,16 +457,18 @@ This custom reader consumes the JSON output of
 a document containing the current top articles on the
 Haskell subreddit.
 
-It assumes that the `luajson` library is available.  (It can be
-installed using `luarocks install luajson`---but be sure you are
-installing it for Lua 5.3, which is the version packaged with
-pandoc.)
+It assumes that the `pandoc.json` library is available, which
+ships with pandoc versions after (not including) 3.1. It's still
+possible to use this with older pandoc version by using a
+different JSON library. E.g., `luajson` can be installed using
+`luarocks install luajson`---but be sure you are installing it for
+Lua 5.4, which is the version packaged with pandoc.
 
 
 ```lua
 -- consumes the output of https://www.reddit.com/r/haskell.json
 
-local json = require'json'  -- luajson must be available
+local json = require 'pandoc.json'
 
 local function read_inlines(raw)
   local doc = pandoc.read(raw, "commonmark")

@@ -16,7 +16,7 @@ module Text.Pandoc.Readers.Man (readMan) where
 
 import Data.Char (toLower)
 import Data.Default (Default)
-import Control.Monad (liftM, mzero, guard, void)
+import Control.Monad (mzero, guard, void)
 import Control.Monad.Trans (lift)
 import Control.Monad.Except (throwError)
 import Data.Maybe (catMaybes, isJust)
@@ -24,16 +24,14 @@ import Data.List (intersperse)
 import qualified Data.Text as T
 import Text.Pandoc.Builder as B
 import Text.Pandoc.Class.PandocMonad (PandocMonad(..), report)
-import Text.Pandoc.Error (PandocError (PandocParsecError))
 import Text.Pandoc.Logging (LogMessage(..))
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing
 import Text.Pandoc.Walk (query)
-import Text.Pandoc.Shared (mapLeft)
 import Text.Pandoc.Readers.Roff  -- TODO explicit imports
-import qualified Text.Parsec as Parsec
-import Text.Parsec.Pos (updatePosString)
+import qualified Text.Pandoc.Parsing as P
 import qualified Data.Foldable as Foldable
+import Text.Pandoc.Shared (extractSpaces)
 
 data ManState = ManState { readerOptions   :: ReaderOptions
                          , metadata        :: Meta
@@ -45,7 +43,7 @@ instance Default ManState where
                  , metadata        = nullMeta
                  , tableCellsPlain = True }
 
-type ManParser m = ParserT [RoffToken] ManState m
+type ManParser m = P.ParsecT [RoffToken] ManState m
 
 
 -- | Read man (troff) from an input string and return a Pandoc document.
@@ -57,21 +55,18 @@ readMan opts s = do
   let Sources inps = toSources s
   tokenz <- mconcat <$> mapM (uncurry lexRoff) inps
   let state = def {readerOptions = opts} :: ManState
-  let fixError (PandocParsecError _ e) = PandocParsecError (Sources inps) e
-      fixError e = e
   eitherdoc <- readWithMTokens parseMan state
      (Foldable.toList . unRoffTokens $ tokenz)
-  either (throwError . fixError) return eitherdoc
+  either (throwError . fromParsecError (Sources inps)) return eitherdoc
 
 
 readWithMTokens :: PandocMonad m
-        => ParserT [RoffToken] ManState m a  -- ^ parser
+        => ParsecT [RoffToken] ManState m a  -- ^ parser
         -> ManState                         -- ^ initial state
         -> [RoffToken]                       -- ^ input
-        -> m (Either PandocError a)
+        -> m (Either ParseError a)
 readWithMTokens parser state input =
-  let leftF = PandocParsecError mempty
-  in mapLeft leftF `liftM` runParserT parser state "source" input
+  runParserT parser state "source" input
 
 
 parseMan :: PandocMonad m => ManParser m Pandoc
@@ -180,14 +175,16 @@ parseNewParagraph = do
 -- Parser: [RoffToken] -> Pandoc
 --
 
-msatisfy :: Monad m => (RoffToken -> Bool) -> ParserT [RoffToken] st m RoffToken
-msatisfy predic = tokenPrim show nextPos testTok
+msatisfy :: Monad m
+         => (RoffToken -> Bool) -> P.ParsecT [RoffToken] st m RoffToken
+msatisfy predic = P.tokenPrim show nextPos testTok
   where
     testTok t     = if predic t then Just t else Nothing
     nextPos _pos _x (ControlLine _ _ pos':_) = pos'
-    nextPos pos _x _xs  = updatePosString
-                             (setSourceColumn
-                               (setSourceLine pos $ sourceLine pos + 1) 1) ""
+    nextPos pos _x _xs  = P.updatePosString
+                             (P.setSourceColumn
+                               (P.setSourceLine pos $
+                                 P.sourceLine pos + 1) 1) ""
 
 mtoken :: PandocMonad m => ManParser m RoffToken
 mtoken = msatisfy (const True)
@@ -245,12 +242,12 @@ linePartsToInlines = go False
     | otherwise = text s <> go mono xs
   go mono (Font fs: xs)
     | litals > 0 && litals >= lbolds && litals >= lmonos
-       = emph (go mono (Font fs{ fontItalic = False } :
+       = extractSpaces emph (go mono (Font fs{ fontItalic = False } :
                    map (adjustFontSpec (\s -> s{ fontItalic = False }))
                    itals)) <>
             go mono italsrest
     | lbolds > 0 && lbolds >= lmonos
-       = strong (go mono (Font fs{ fontBold = False } :
+       = extractSpaces strong (go mono (Font fs{ fontBold = False } :
               map (adjustFontSpec (\s -> s{ fontBold = False }))
               bolds)) <>
             go mono boldsrest
@@ -309,12 +306,12 @@ handleInlineMacro mname args _pos =
     "RI" -> parseAlternatingFonts [id, emph] args
     "BR" -> parseAlternatingFonts [strong, id] args
     "RB" -> parseAlternatingFonts [id, strong] args
-    "SY" -> return $ strong $ mconcat $ intersperse B.space
+    "SY" -> return $ extractSpaces strong $ mconcat $ intersperse B.space
                    $ map linePartsToInlines args
     "YS" -> return mempty
     "OP" -> case args of
               (x:ys) -> return $ B.space <> str "[" <> B.space <>
-                         mconcat (strong (linePartsToInlines x) :
+                         mconcat (extractSpaces strong (linePartsToInlines x) :
                            map ((B.space <>) . linePartsToInlines) ys)
                          <> B.space <> str "]"
               []     -> return mempty
@@ -323,16 +320,18 @@ handleInlineMacro mname args _pos =
 parseBold :: PandocMonad m => [Arg] -> ManParser m Inlines
 parseBold [] = do
   TextLine lparts <- mline
-  return $ strong $ linePartsToInlines lparts
+  return $ extractSpaces strong $ linePartsToInlines lparts
 parseBold args = return $
-  strong $ mconcat $ intersperse B.space $ map linePartsToInlines args
+  extractSpaces strong $
+  mconcat $ intersperse B.space $ map linePartsToInlines args
 
 parseItalic :: PandocMonad m => [Arg] -> ManParser m Inlines
 parseItalic [] = do
   TextLine lparts <- mline
-  return $ emph $ linePartsToInlines lparts
+  return $ extractSpaces emph $ linePartsToInlines lparts
 parseItalic args = return $
-  emph $ mconcat $ intersperse B.space $ map linePartsToInlines args
+  extractSpaces emph $
+  mconcat $ intersperse B.space $ map linePartsToInlines args
 
 parseAlternatingFonts :: [Inlines -> Inlines]
                       -> [Arg]
@@ -410,7 +409,16 @@ parseHeader = do
   return $ header lvl contents
 
 parseBlockQuote :: PandocMonad m => ManParser m Blocks
-parseBlockQuote = blockQuote <$> continuation
+parseBlockQuote = blockQuote <$>
+   (  (mmacro "RS" *> (mconcat <$> manyTill parseBlock (endmacro "RE")))
+  <|> parseIndentedParagraphs
+   )
+ where
+  parseIndentedParagraphs = try $ do
+    bareIP
+    first <- parsePara <|> parseCodeBlock
+    rest <- many $ try (memptyLine *> (parsePara <|> parseCodeBlock))
+    pure (first <> mconcat rest)
 
 data ListType = Ordered ListAttributes
               | Bullet
@@ -431,7 +439,7 @@ listItem mbListType = try $ do
     (arg1 : _)  -> do
       let cs = linePartsToText arg1
       let cs' = if not (T.any (== '.') cs || T.any (== ')') cs) then cs <> "." else cs
-      let lt = case Parsec.runParser anyOrderedListMarker defaultParserState
+      let lt = case P.runParser anyOrderedListMarker defaultParserState
                      "list marker" cs' of
                   Right (start, listtype, listdelim)
                     | cs == cs' -> Ordered (start, listtype, listdelim)
@@ -461,10 +469,8 @@ parseList = try $ do
 
 continuation :: PandocMonad m => ManParser m Blocks
 continuation =
-      mconcat <$> (mmacro "RS" *> manyTill parseBlock (endmacro "RE"))
-  <|> mconcat <$> many1 (  try (bareIP *> parsePara)
-                       <|> try (bareIP *> parseCodeBlock)
-                        )
+      (mmacro "RS" *> (mconcat <$> manyTill parseBlock (endmacro "RE")))
+  <|> try ((memptyLine <|> bareIP) *> (parsePara <|> parseCodeBlock))
 
 definitionListItem :: PandocMonad m
                    => ManParser m (Inlines, [Blocks])
@@ -477,11 +483,10 @@ definitionListItem = try $ do
                  mmacro "TQ"
                  parseInline
   skipMany memptyLine
-  inls <- option mempty parseInlines
-  skipMany memptyLine
-  continuations <- mconcat <$> many continuation
+  firstBlock <- parseBlock
+  otherBlocks <- mconcat <$> many continuation
   return ( mconcat (intersperse B.linebreak (term:moreterms))
-         , [para inls <> continuations])
+         , [firstBlock <> otherBlocks])
 
 parseDefinitionList :: PandocMonad m => ManParser m Blocks
 parseDefinitionList = definitionList <$> many1 definitionListItem

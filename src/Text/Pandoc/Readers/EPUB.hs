@@ -29,7 +29,7 @@ import qualified Data.Map as M (Map, elems, fromList, lookup)
 import Data.Maybe (mapMaybe)
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
-import Network.URI (unEscapeString)
+import Network.URI (unEscapeString, parseRelativeReference, URI(..))
 import System.FilePath (dropFileName, dropFileName, normalise, splitFileName,
                         takeFileName, (</>))
 import qualified Text.Pandoc.Builder as B
@@ -40,7 +40,8 @@ import Text.Pandoc.Extensions (Extension (Ext_raw_html), enableExtension)
 import Text.Pandoc.MIME (MimeType)
 import Text.Pandoc.Options (ReaderOptions (..))
 import Text.Pandoc.Readers.HTML (readHtml)
-import Text.Pandoc.Shared (addMetaField, collapseFilePath, escapeURI, tshow)
+import Text.Pandoc.Shared (addMetaField, collapseFilePath, tshow)
+import Text.Pandoc.URI (escapeURI)
 import qualified Text.Pandoc.UTF8 as UTF8 (toTextLazy)
 import Text.Pandoc.Walk (query, walk)
 import Text.Pandoc.XML.Light
@@ -50,7 +51,8 @@ type Items = M.Map Text (FilePath, MimeType)
 readEPUB :: PandocMonad m => ReaderOptions -> BL.ByteString -> m Pandoc
 readEPUB opts bytes = case toArchiveOrFail bytes of
   Right archive -> archiveToEPUB opts archive
-  Left  _       -> throwError $ PandocParseError "Couldn't extract ePub file"
+  Left  e       -> throwError $ PandocParseError $
+                     "Couldn't extract ePub file: " <> T.pack e
 
 -- runEPUB :: Except PandocError a -> Either PandocError a
 -- runEPUB = runExcept
@@ -209,10 +211,17 @@ fixInlineIRs s (Span as v) =
   Span (fixAttrs s as) v
 fixInlineIRs s (Code as code) =
   Code (fixAttrs s as) code
-fixInlineIRs s (Link as is (T.uncons -> Just ('#', url), tit)) =
-  Link (fixAttrs s as) is (addHash s url, tit)
-fixInlineIRs s (Link as is t) =
-  Link (fixAttrs s as) is t
+fixInlineIRs s (Link as is (url, tit)) =
+  case parseRelativeReference (T.unpack url) of
+    Just URI{ uriScheme = ""
+            , uriAuthority = Nothing
+            , uriPath = upath
+            , uriQuery = ""
+            , uriFragment = '#':ufrag } ->
+         Link (fixAttrs s as) is (addHash (if null upath
+                                              then s
+                                              else upath) (T.pack ufrag), tit)
+    _ -> Link (fixAttrs s as) is (url, tit)
 fixInlineIRs _ v = v
 
 prependHash :: [Text] -> Inline -> Inline
@@ -237,7 +246,7 @@ fixAttrs s (ident, cs, kvs) =
 
 addHash :: FilePath -> Text -> Text
 addHash _ ""    = ""
-addHash s ident = T.pack (takeFileName s) <> "#" <> ident
+addHash s ident = T.pack (takeFileName s) <> "_" <> ident
 
 removeEPUBAttrs :: [(Text, Text)] -> [(Text, Text)]
 removeEPUBAttrs kvs = filter (not . isEPUBAttr) kvs

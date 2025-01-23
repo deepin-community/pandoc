@@ -16,7 +16,7 @@ module Text.Pandoc.Readers.TWiki ( readTWiki
 
 import Control.Monad
 import Control.Monad.Except (throwError)
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, isDigit, isUpper, isLower, isLetter)
 import qualified Data.Foldable as F
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -26,7 +26,7 @@ import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Class.PandocMonad (PandocMonad (..))
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
-import Text.Pandoc.Parsing hiding (enclosed, nested)
+import Text.Pandoc.Parsing hiding (enclosed)
 import Text.Pandoc.Readers.HTML (htmlTag, isCommentTag)
 import Text.Pandoc.Shared (tshow)
 import Text.Pandoc.XML (fromEntities)
@@ -43,7 +43,7 @@ readTWiki opts s = do
        Left e  -> throwError e
        Right d -> return d
 
-type TWParser = ParserT Sources ParserState
+type TWParser = ParsecT Sources ParserState
 
 --
 -- utility functions
@@ -51,15 +51,6 @@ type TWParser = ParserT Sources ParserState
 
 tryMsg :: Text -> TWParser m a -> TWParser m a
 tryMsg msg p = try p <?> T.unpack msg
-
-nested :: PandocMonad m => TWParser m a -> TWParser m a
-nested p = do
-  nestlevel <- stateMaxNestingLevel <$>  getState
-  guard $ nestlevel > 0
-  updateState $ \st -> st{ stateMaxNestingLevel = stateMaxNestingLevel st - 1 }
-  res <- p
-  updateState $ \st -> st{ stateMaxNestingLevel = nestlevel }
-  return res
 
 htmlElement :: PandocMonad m => Text -> TWParser m (Attr, Text)
 htmlElement tag = tryMsg tag $ do
@@ -85,7 +76,7 @@ parseHtmlContentWithAttrs tag parser = do
   parsedContent <- try $ parseContent content
   return (attr, parsedContent)
   where
-    parseContent = parseFromString' $ nested $ manyTill parser endOfContent
+    parseContent = parseFromString' $ manyTill parser endOfContent
     endOfContent = try $ skipMany blankline >> skipSpaces >> eof
 
 parseCharHtmlContentWithAttrs :: PandocMonad m
@@ -221,9 +212,9 @@ listItemLine prefix marker = mconcat <$> (lineContent >>= parseContent)
 
 table :: PandocMonad m => TWParser m B.Blocks
 table = try $ do
-  tableHead <- optionMaybe (unzip <$> many1Till tableParseHeader newline)
+  thead <- optionMaybe (unzip <$> many1Till tableParseHeader newline)
   rows <- many1 tableParseRow
-  return $ buildTable mempty rows $ fromMaybe (align rows, columns rows) tableHead
+  return $ buildTable mempty rows $ fromMaybe (align rows, columns rows) thead
   where
     buildTable caption rows (aligns, heads)
                     = B.table (B.simpleCaption $ B.plain caption)
@@ -231,9 +222,11 @@ table = try $ do
                               (TableHead nullAttr $ toHeaderRow heads)
                               [TableBody nullAttr 0 [] $ map toRow rows]
                               (TableFoot nullAttr [])
-    align rows      = replicate (columCount rows) (AlignDefault, ColWidthDefault)
-    columns rows    = replicate (columCount rows) mempty
-    columCount rows = length $ head rows
+    align rows      = replicate (columnCount rows)
+                         (AlignDefault, ColWidthDefault)
+    columns rows    = replicate (columnCount rows) mempty
+    columnCount (r:_) = length r
+    columnCount []  = 0
     toRow           = Row nullAttr . map B.simpleCell
     toHeaderRow l = [toRow l | not (null l)]
 
@@ -402,7 +395,7 @@ nestedInlines :: (Show a, PandocMonad m)
 nestedInlines end = innerSpace <|> nestedInline
   where
     innerSpace   = try $ whitespace <* notFollowedBy end
-    nestedInline = notFollowedBy whitespace >> nested inline
+    nestedInline = notFollowedBy whitespace >> inline
 
 strong :: PandocMonad m => TWParser m B.Inlines
 strong = try $ B.strong <$> enclosed (char '*') nestedInlines
@@ -456,7 +449,7 @@ autoLink = try $ do
       | otherwise = isAlphaNum c
 
 str :: PandocMonad m => TWParser m B.Inlines
-str = B.str <$> (many1Char alphaNum <|> countChar 1 characterReference)
+str = B.str <$> (many1Char alphaNum <|> characterReference)
 
 nop :: PandocMonad m => TWParser m B.Inlines
 nop = try $ (void exclamation <|> void nopTag) >> followContent
@@ -476,7 +469,7 @@ link = try $ do
   st <- getState
   guard $ stateAllowLinks st
   setState $ st{ stateAllowLinks = False }
-  (url, title, content) <- linkText
+  (url, title, content) <- linkText <|> simpleWikiLink
   setState $ st{ stateAllowLinks = True }
   return $ B.link url title content
 
@@ -490,3 +483,15 @@ linkText = do
   where
     linkContent      = char '[' >> many1Till anyChar (char ']') >>= parseLinkContent . T.pack
     parseLinkContent = parseFromString' $ many1 inline
+
+simpleWikiLink :: PandocMonad m => TWParser m (Text, Text, B.Inlines)
+simpleWikiLink = do
+  w <- wikiWord
+  return (w, "wikilink", B.str w)
+ where
+   wikiWord = do
+     cs <- many1 $ satisfy (\x -> isLetter x && isUpper x)
+     ds <- many1 $ satisfy (\x -> isDigit x || (isLetter x && isLower x))
+     es <- many1 $ satisfy (\x -> isLetter x && isUpper x)
+     fs <- many $ satisfy isAlphaNum
+     return $ T.pack $ cs ++ ds ++ es ++ fs

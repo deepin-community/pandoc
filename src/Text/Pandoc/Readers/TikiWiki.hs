@@ -29,7 +29,7 @@ import Text.Pandoc.Class.PandocMonad (PandocMonad (..))
 import Text.Pandoc.Definition
 import Text.Pandoc.Logging (Verbosity (..))
 import Text.Pandoc.Options
-import Text.Pandoc.Parsing hiding (enclosed, nested)
+import Text.Pandoc.Parsing hiding (enclosed)
 import Text.Pandoc.Shared (safeRead)
 import Text.Pandoc.XML (fromEntities)
 import Text.Printf (printf)
@@ -46,7 +46,7 @@ readTikiWiki opts s = do
        Left e  -> throwError e
        Right d -> return d
 
-type TikiWikiParser = ParserT Sources ParserState
+type TikiWikiParser = ParsecT Sources ParserState
 
 --
 -- utility functions
@@ -57,15 +57,6 @@ tryMsg msg p = try p <?> T.unpack msg
 
 skip :: TikiWikiParser m a -> TikiWikiParser m ()
 skip parser = Control.Monad.void parser
-
-nested :: PandocMonad m => TikiWikiParser m a -> TikiWikiParser m a
-nested p = do
-  nestlevel <- stateMaxNestingLevel <$>  getState
-  guard $ nestlevel > 0
-  updateState $ \st -> st{ stateMaxNestingLevel = stateMaxNestingLevel st - 1 }
-  res <- p
-  updateState $ \st -> st{ stateMaxNestingLevel = nestlevel }
-  return res
 
 --
 -- main parser
@@ -166,8 +157,9 @@ table = try $ do
   return $ B.simpleTable (headers rows) rows
   where
     -- The headers are as many empty strings as the number of columns
-    -- in the first row
-    headers rows = replicate (length $ head rows) ((B.plain . B.str) "")
+-- in the first row
+    headers [] = []
+    headers (r:_) = replicate (length r) ((B.plain . B.str) "")
 
 para :: PandocMonad m => TikiWikiParser m B.Blocks
 para =  fmap (result . mconcat) ( many1Till inline endOfParaElement)
@@ -235,10 +227,9 @@ fixListNesting [first] = [recurseOnList first]
 -- fixListNesting nestall | trace ("\n\nfixListNesting: " ++ (show nestall)) False = undefined
 -- fixListNesting nestall@(first:second:rest) =
 fixListNesting (first:second:rest) =
-  let secondBlock = head $ B.toList second in
-    case secondBlock of
-      BulletList _ -> fixListNesting $ mappend (recurseOnList first) (recurseOnList second) : rest
-      OrderedList _ _ -> fixListNesting $ mappend (recurseOnList first) (recurseOnList second) : rest
+    case B.toList second of
+      (BulletList _ : _) -> fixListNesting $ mappend (recurseOnList first) (recurseOnList second) : rest
+      (OrderedList _ _ : _) -> fixListNesting $ mappend (recurseOnList first) (recurseOnList second) : rest
       _ -> recurseOnList first : fixListNesting (second:rest)
 
 -- This function walks the Block structure for fixListNesting,
@@ -248,10 +239,9 @@ recurseOnList :: B.Blocks -> B.Blocks
 -- recurseOnList item | trace ("rOL: " ++ (show $ length $ B.toList item) ++ ", " ++ (show $ B.toList item)) False = undefined
 recurseOnList items
   | length (B.toList items) == 1 =
-    let itemBlock = head $ B.toList items in
-      case itemBlock of
-        BulletList listItems -> B.bulletList $ fixListNesting $ map B.fromList listItems
-        OrderedList _ listItems -> B.orderedList $ fixListNesting $ map B.fromList listItems
+      case B.toList items of
+        (BulletList listItems : _) -> B.bulletList $ fixListNesting $ map B.fromList listItems
+        (OrderedList _ listItems : _) -> B.orderedList $ fixListNesting $ map B.fromList listItems
         _ -> items
 
   -- The otherwise works because we constructed the blocks, and we
@@ -450,7 +440,7 @@ nestedInlines :: (Show a, PandocMonad m) => TikiWikiParser m a -> TikiWikiParser
 nestedInlines end = innerSpace <|> nestedInline
   where
     innerSpace   = try $ whitespace <* notFollowedBy end
-    nestedInline = notFollowedBy whitespace >> nested inline
+    nestedInline = notFollowedBy whitespace >> inline
 
 -- {img attId="39" imalign="right" link="http://info.tikiwiki.org" alt="Panama Hat"}
 --
@@ -523,14 +513,9 @@ colored = try $ do
   string "~~"
   return $ B.str $ " NOT SUPPORTED: ~~ (colored) BEGIN: ~~" <> inner <> "~~ :END "
 
--- UNSUPPORTED, as there doesn't seem to be any facility in calibre
--- for this
+-- ===underlined===
 underlined :: PandocMonad m => TikiWikiParser m B.Inlines
-underlined = try $ do
-  string "==="
-  inner <- fmap T.pack $ many1 $ noneOf "=\n"
-  string "==="
-  return $ B.str $ " NOT SUPPORTED: ==== (underlined) BEGIN: ===" <> inner <> "=== :END "
+underlined = try $ B.underline <$> enclosed (string "===") nestedInlines
 
 -- UNSUPPORTED, as there doesn't seem to be any facility in calibre
 -- for this
@@ -599,7 +584,7 @@ noparse = try $ do
   return $ B.str $ T.pack body
 
 str :: PandocMonad m => TikiWikiParser m B.Inlines
-str = fmap B.str (T.pack <$> many1 alphaNum <|> countChar 1 characterReference)
+str = fmap B.str (T.pack <$> many1 alphaNum <|> characterReference)
 
 symbol :: PandocMonad m => TikiWikiParser m B.Inlines
 symbol = fmap B.str (countChar 1 nonspaceChar)

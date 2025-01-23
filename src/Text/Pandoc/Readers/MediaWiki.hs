@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Readers.MediaWiki
-   Copyright   : Copyright (C) 2012-2022 John MacFarlane
+   Copyright   : Copyright (C) 2012-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -19,7 +19,7 @@ module Text.Pandoc.Readers.MediaWiki ( readMediaWiki ) where
 
 import Control.Monad
 import Control.Monad.Except (throwError)
-import Data.Char (isDigit, isSpace)
+import Data.Char (isDigit, isLetter, isSpace)
 import qualified Data.Foldable as F
 import Data.List (intersperse)
 import Data.Maybe (fromMaybe, maybeToList)
@@ -34,11 +34,11 @@ import Text.Pandoc.Class.PandocMonad (PandocMonad (..))
 import Text.Pandoc.Definition
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
-import Text.Pandoc.Parsing hiding (nested)
-import Text.Pandoc.Readers.HTML (htmlTag, isBlockTag, isCommentTag)
+import Text.Pandoc.Parsing hiding (tableCaption)
+import Text.Pandoc.Readers.HTML (htmlTag, isBlockTag, isCommentTag, toAttr)
 import Text.Pandoc.Shared (safeRead, stringify, stripTrailingNewlines,
-                           trim, splitTextBy, tshow)
-import Text.Pandoc.Walk (walk)
+                           trim, splitTextBy, tshow, formatCode)
+import Text.Pandoc.Char (isCJK)
 import Text.Pandoc.XML (fromEntities)
 
 -- | Read mediawiki from an input string and return a Pandoc document.
@@ -70,7 +70,7 @@ data MWState = MWState { mwOptions         :: ReaderOptions
                        , mwInTT            :: Bool
                        }
 
-type MWParser m = ParserT Sources MWState m
+type MWParser m = ParsecT Sources MWState m
 
 instance HasReaderOptions MWState where
   extractReaderOptions = mwOptions
@@ -86,17 +86,6 @@ instance HasLogMessages MWState where
 --
 -- auxiliary functions
 --
-
--- This is used to prevent exponential blowups for things like:
--- ''a'''a''a'''a''a'''a''a'''a
-nested :: PandocMonad m => MWParser m a -> MWParser m a
-nested p = do
-  nestlevel <- mwMaxNestingLevel `fmap` getState
-  guard $ nestlevel > 0
-  updateState $ \st -> st{ mwMaxNestingLevel = mwMaxNestingLevel st - 1 }
-  res <- p
-  updateState $ \st -> st{ mwMaxNestingLevel = nestlevel }
-  return res
 
 specialChars :: [Char]
 specialChars = "'[]<=&*{}|\":\\"
@@ -220,25 +209,25 @@ table = do
                          Just w  -> fromMaybe 1.0 $ parseWidth w
                          Nothing -> 1.0
   caption <- option mempty tableCaption
+  optional newline
   optional rowsep
   hasheader <- option False $ True <$ lookAhead (skipSpaces *> char '!')
-  (cellspecs',hdr) <- unzip <$> tableRow
-  let widths = map ((tableWidth *) . snd) cellspecs'
+  (cellwidths,hdr) <- unzip <$> tableRow
+  let widths = map (tableWidth *) (concat cellwidths)
   let restwidth = tableWidth - sum widths
   let zerocols = length $ filter (==0.0) widths
   let defaultwidth = if zerocols == 0 || zerocols == length widths
                         then ColWidthDefault
                         else ColWidth $ restwidth / fromIntegral zerocols
   let widths' = map (\w -> if w > 0 then ColWidth w else defaultwidth) widths
-  let cellspecs = zip (map fst cellspecs') widths'
+  let cellspecs = zip (calculateAlignments hdr) widths'
   rows' <- many $ try $ rowsep *> (map snd <$> tableRow)
   optional blanklines
   tableEnd
-  let cols = length hdr
   let (headers,rows) = if hasheader
                           then (hdr, rows')
-                          else (replicate cols mempty, hdr:rows')
-  let toRow = Row nullAttr . map B.simpleCell
+                          else ([], hdr:rows')
+  let toRow = Row nullAttr
       toHeaderRow l = [toRow l | not (null l)]
   return $ B.table (B.simpleCaption $ B.plain caption)
                    cellspecs
@@ -246,15 +235,25 @@ table = do
                    [TableBody nullAttr 0 [] $ map toRow rows]
                    (TableFoot nullAttr [])
 
+calculateAlignments :: [Cell] -> [Alignment]
+calculateAlignments = concatMap cellAligns
+  where
+    cellAligns :: Cell -> [Alignment]
+    cellAligns (Cell _ align _ (ColSpan colspan) _) = replicate colspan align
+
 parseAttrs :: PandocMonad m => MWParser m [(Text,Text)]
 parseAttrs = many1 parseAttr
 
 parseAttr :: PandocMonad m => MWParser m (Text, Text)
 parseAttr = try $ do
   skipMany spaceChar
-  k <- many1Char letter
+  kFirst <- letter
+  kRest <- many (alphaNum <|> oneOf "_-:.")
+  let k = T.pack (kFirst : kRest)
+  skipMany spaceChar
   char '='
-  v <- (char '"' >> many1TillChar (satisfy (/='\n')) (char '"'))
+  skipMany spaceChar
+  v <- (char '"' >> manyTillChar (satisfy (/='\n')) (char '"'))
        <|> many1Char (satisfy $ \c -> not (isSpace c) && c /= '|')
   return (k,v)
 
@@ -266,58 +265,65 @@ tableEnd = try $ guardColumnOne *> skipSpaces *> sym "|}"
 
 rowsep :: PandocMonad m => MWParser m ()
 rowsep = try $ guardColumnOne *> skipSpaces *> sym "|-" <*
-               many (char '-') <* optional parseAttrs <* blanklines
+               many (char '-') <* optional parseAttrs
+                               <* skipSpaces
+                               <* skipMany htmlComment
+                               <* blanklines
 
-cellsep :: PandocMonad m => MWParser m ()
+cellsep :: PandocMonad m => MWParser m [(Text,Text)]
 cellsep = try $ do
   col <- sourceColumn <$> getPosition
-  skipSpaces
-  let pipeSep = do
-        char '|'
-        notFollowedBy (oneOf "-}+")
-        if col == 1
-           then optional (char '|')
-           else void (char '|')
-  let exclSep = do
-        char '!'
-        if col == 1
-           then optional (char '!')
-           else void (char '!')
-  pipeSep <|> exclSep
+  skipMany spaceChar
+  c <- oneOf "|!"
+  when (col > 1) $ void $ char c
+  notFollowedBy (oneOf "-}")
+  attribs <- option [] (parseAttrs <* skipMany spaceChar <* char '|')
+  skipMany spaceChar
+  pure attribs
 
 tableCaption :: PandocMonad m => MWParser m Inlines
 tableCaption = try $ do
+  optional rowsep
   guardColumnOne
   skipSpaces
   sym "|+"
   optional (try $ parseAttrs *> skipSpaces *> char '|' *> blanklines)
   trimInlines . mconcat <$>
-    many (notFollowedBy (cellsep <|> rowsep) *> inline)
+    many (notFollowedBy (void cellsep <|> rowsep) *> inline)
 
-tableRow :: PandocMonad m => MWParser m [((Alignment, Double), Blocks)]
+tableRow :: PandocMonad m => MWParser m [([Double], Cell)]
 tableRow = try $ skipMany htmlComment *> many tableCell
 
-tableCell :: PandocMonad m => MWParser m ((Alignment, Double), Blocks)
+-- multiple widths because cell might have colspan
+tableCell :: PandocMonad m => MWParser m ([Double], Cell)
 tableCell = try $ do
-  cellsep
-  skipMany spaceChar
-  attrs <- option [] $ try $ parseAttrs <* skipSpaces <* char '|' <*
-                                 notFollowedBy (char '|')
-  skipMany spaceChar
+  attribs <- cellsep
   pos' <- getPosition
-  ls <- T.concat <$> many (notFollowedBy (cellsep <|> rowsep <|> tableEnd) *>
+  ls <- T.concat <$> many (notFollowedBy (void cellsep <|> rowsep <|> tableEnd) *>
                             ((snd <$> withRaw table) <|> countChar 1 anyChar))
   bs <- parseFromString (do setPosition pos'
                             mconcat <$> many block) ls
-  let align = case lookup "align" attrs of
+  let align = case lookup "align" attribs of
                     Just "left"   -> AlignLeft
                     Just "right"  -> AlignRight
                     Just "center" -> AlignCenter
                     _             -> AlignDefault
-  let width = case lookup "width" attrs of
-                    Just xs -> fromMaybe 0.0 $ parseWidth xs
-                    Nothing -> 0.0
-  return ((align, width), bs)
+  let rowspan = RowSpan . fromMaybe 1 $
+                safeRead =<< lookup "rowspan" attribs
+  let colspan = ColSpan . fromMaybe 1 $
+                safeRead =<< lookup "colspan" attribs
+  let ColSpan rawcolspan = colspan
+  let handledAttribs = ["align", "colspan", "rowspan"]
+      attribs' = [ (k, v) | (k, v) <- attribs
+                          , k `notElem` handledAttribs
+                 ]
+  let widths = case lookup "width" attribs of
+                    Just xs -> maybe (replicate rawcolspan 0.0)
+                                 (\w -> replicate rawcolspan
+                                    (w / fromIntegral rawcolspan))
+                                 (parseWidth xs)
+                    Nothing -> replicate rawcolspan 0.0
+  return (widths, B.cellWith (toAttr attribs') align rowspan colspan bs)
 
 parseWidth :: Text -> Maybe Double
 parseWidth s =
@@ -392,14 +398,7 @@ preformatted = try $ do
      else return $ B.para $ encode contents
 
 encode :: Inlines -> Inlines
-encode = B.fromList . normalizeCode . B.toList . walk strToCode
-  where strToCode (Str s) = Code ("",[],[]) s
-        strToCode Space   = Code ("",[],[]) " "
-        strToCode  x      = x
-        normalizeCode []  = []
-        normalizeCode (Code a1 x : Code a2 y : zs) | a1 == a2 =
-          normalizeCode $ Code a1 (x <> y) : zs
-        normalizeCode (x:xs) = x : normalizeCode xs
+encode = formatCode nullAttr
 
 header :: PandocMonad m => MWParser m Blocks
 header = try $ do
@@ -500,8 +499,9 @@ listItem c = try $ do
 -- }}
 -- * next list item
 -- which seems to be valid mediawiki.
+-- Also multiline math: see #9293.
 listChunk :: PandocMonad m => MWParser m Text
-listChunk = template <|> countChar 1 anyChar
+listChunk = template <|> (snd <$> withRaw math) <|> countChar 1 anyChar
 
 listItem' :: PandocMonad m => Char -> MWParser m Blocks
 listItem' c = try $ do
@@ -615,15 +615,16 @@ endline = () <$ try (newline <*
                      notFollowedBy' header <*
                      notFollowedBy anyListStart)
 
-imageIdentifiers :: PandocMonad m => [MWParser m ()]
-imageIdentifiers = [sym (identifier <> ":") | identifier <- identifiers]
-    where identifiers = ["File", "Image", "Archivo", "Datei", "Fichier",
-                         "Bild"]
+imageIdentifier :: PandocMonad m => MWParser m ()
+imageIdentifier = try $ do
+  ident <- T.pack <$> many1Till letter (char ':')
+  guard $ T.toLower ident `elem`
+            ["file", "image", "archivo", "datei", "fichier", "bild"]
 
 image :: PandocMonad m => MWParser m Inlines
 image = try $ do
   sym "[["
-  choice imageIdentifiers
+  imageIdentifier
   fname <- addUnderscores <$> many1Char (noneOf "|]")
   _ <- many imageOption
   dims <- try (char '|' *> sepBy (manyChar digit) (char 'x') <* string "px")
@@ -650,7 +651,7 @@ imageOption = try $ char '|' *> opt
       <|> try (oneOfStrings ["link=","alt=","page=","class="] <* many (noneOf "|]"))
 
 addUnderscores :: Text -> Text
-addUnderscores = T.intercalate "_" . splitTextBy sep
+addUnderscores = T.intercalate "_" . splitTextBy sep . T.strip
   where
     sep c = isSpace c || c == '_'
 
@@ -664,7 +665,8 @@ internalLink = try $ do
              -- [[Help:Contents|] -> "Contents"
              <|> return (B.text $ T.drop 1 $ T.dropWhile (/=':') pagename) )
   sym "]]"
-  linktrail <- B.text <$> manyChar letter
+  -- see #8525:
+  linktrail <- B.text <$> manyChar (satisfy (\c -> isLetter c && not (isCJK c)))
   let link = B.link (addUnderscores pagename) "wikilink" (label <> linktrail)
   if "Category:" `T.isPrefixOf` pagename
      then do
@@ -695,12 +697,12 @@ inlinesBetween start end =
   trimInlines . mconcat <$> try (start >> many1Till inline end)
 
 emph :: PandocMonad m => MWParser m Inlines
-emph = B.emph <$> nested (inlinesBetween start end)
+emph = B.emph <$> inlinesBetween start end
     where start = sym "''"
           end   = try $ notFollowedBy' (() <$ strong) >> sym "''"
 
 strong :: PandocMonad m => MWParser m Inlines
-strong = B.strong <$> nested (inlinesBetween start end)
+strong = B.strong <$> inlinesBetween start end
     where start = sym "'''"
           end   = sym "'''"
 
@@ -709,6 +711,6 @@ doubleQuotes = do
   guardEnabled Ext_smart
   inTT <- mwInTT <$> getState
   guard (not inTT)
-  B.doubleQuoted <$> nested (inlinesBetween openDoubleQuote closeDoubleQuote)
+  B.doubleQuoted <$> inlinesBetween openDoubleQuote closeDoubleQuote
     where openDoubleQuote = sym "\"" >> lookAhead nonspaceChar
           closeDoubleQuote = try $ sym "\""

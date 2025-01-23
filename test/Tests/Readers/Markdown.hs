@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Tests.Readers.Markdown
-   Copyright   : © 2006-2022 John MacFarlane
+   Copyright   : © 2006-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -15,6 +15,7 @@ module Tests.Readers.Markdown (tests) where
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import Test.Tasty
+import Test.Tasty.HUnit (HasCallStack)
 import Tests.Helpers
 import Text.Pandoc
 import Text.Pandoc.Arbitrary ()
@@ -33,14 +34,14 @@ markdownCDL = purely $ readMarkdown def { readerExtensions = enableExtension
                  Ext_compact_definition_lists pandocExtensions }
 
 markdownGH :: Text -> Pandoc
-markdownGH = purely $ readMarkdown def {
-                readerExtensions = githubMarkdownExtensions }
+markdownGH = purely $ readMarkdown def {readerExtensions = enableExtension
+                 Ext_wikilinks_title_before_pipe githubMarkdownExtensions }
 
 markdownMMD :: Text -> Pandoc
 markdownMMD = purely $ readMarkdown def {
                  readerExtensions = multimarkdownExtensions }
 infix 4 =:
-(=:) :: ToString c
+(=:) :: (ToString c, HasCallStack)
      => String -> (Text, c) -> TestTree
 (=:) = test markdown
 
@@ -207,17 +208,17 @@ tests = [ testGroup "inline code"
              | lsts <- [ [i, j, k] | i <- lists, j <- lists, k <- lists]
              ]
           <> [ "lists with newlines and indent in backticks" =:
-               T.intercalate ("\n" <> T.replicate 4 " ") (zipWith (\i (_, lt, _) -> lt <> i) lis lsts)
-               =?> let (_, _, f) = head lsts
-                   in f [plain $ code $ T.intercalate (T.replicate 5 " ") $ head lis' : zipWith (\i (_, lt, _) -> lt <> i) (tail lis') (tail lsts)]
-             | lsts <- [ [i, j, k] | i <- lists, j <- lists, k <- lists]
+               T.intercalate ("\n" <> T.replicate 4 " ") (zipWith (\i (_, lt, _) -> lt <> i) lis (l:ls))
+               =?> let (_, _, f) = l
+                   in f [plain $ code $ T.intercalate (T.replicate 5 " ") $ "text" : zipWith (\i (_, lt, _) -> lt <> i) (drop 1 lis') ls]
+             | (l:ls) <- [ [i, j, k] | i <- lists, j <- lists, k <- lists]
              ]
           <> [ "lists with blank lines and indent in backticks" =:
-               T.intercalate ("\n\n" <> T.replicate 4 " ") (zipWith (\i (_, lt, _) -> lt <> i) lis lsts)
+               T.intercalate ("\n\n" <> T.replicate 4 " ") (zipWith (\i (_, lt, _) -> lt <> i) lis (l:ls))
                <> "\n"
-               =?> let (_, _, f) = head lsts
-                   in f . pure $ (para . text $ head lis) <> bldLsts para (tail lsts) (tail lis)
-             | lsts <- [ [i, j, k] | i <- lists, j <- lists, k <- lists]
+               =?> let (_, _, f) = l
+                   in f . pure $ (para . text $ "`text") <> bldLsts para ls (drop 1 lis)
+             | (l:ls) <- [ [i, j, k] | i <- lists, j <- lists, k <- lists]
              ]
         , testGroup "emph and strong"
           [ "two strongs in emph" =:
@@ -308,6 +309,26 @@ tests = [ testGroup "inline code"
             "[https://example.org(](url)" =?>
             para (link "url" "" (text "https://example.org("))
           ]
+        , testGroup "Github wiki links"
+          [ test markdownGH "autolink" $
+            "[[https://example.org]]" =?>
+            para (link "https://example.org" "wikilink" (str "https://example.org"))
+          , test markdownGH "link with title" $
+            "[[title|https://example.org]]" =?>
+            para (link "https://example.org" "wikilink" (str "title"))
+          , test markdownGH "bad link with title" $
+            "[[title|random string]]" =?>
+            para (link "random string" "wikilink" (str "title"))
+          , test markdownGH "autolink not being a link" $
+            "[[Name of page]]" =?>
+            para (link "Name of page" "wikilink" (text "Name of page"))
+          , test markdownGH "autolink not being a link with a square bracket" $
+            "[[Name of ]page]]" =?>
+            para (link "Name of ]page" "wikilink" (text "Name of ]page"))
+          , test markdownGH "link with inline start should be a link" $
+            "[[t`i*t_le|https://example.org]]" =?>
+            para (link "https://example.org" "wikilink" (str "t`i*t_le"))
+          ]
         , testGroup "Headers"
           [ "blank line before header" =:
             "\n# Header\n"
@@ -371,13 +392,13 @@ tests = [ testGroup "inline code"
           , test markdownMMD "normal superscript"
             ("x^3^"
             =?> para ("x" <> superscript "3"))
-          , test markdownMMD "short subscript delimeted by space"
+          , test markdownMMD "short subscript delimited by space"
             ("O~2 is dangerous"
             =?> para ("O" <> subscript "2" <> space <> "is dangerous"))
-          , test markdownMMD "short subscript delimeted by newline"
+          , test markdownMMD "short subscript delimited by newline"
             ("O~2\n"
             =?> para ("O" <> subscript "2"))
-          , test markdownMMD "short subscript delimeted by EOF"
+          , test markdownMMD "short subscript delimited by EOF"
             ("O~2"
             =?> para ("O" <> subscript "2"))
           , test markdownMMD "short subscript delimited by punctuation"
@@ -389,13 +410,13 @@ tests = [ testGroup "inline code"
           , test markdownMMD "no nesting in short subscripts"
             ("y~*2*"
             =?> para ("y~" <> emph "2"))
-          , test markdownMMD "short superscript delimeted by space"
+          , test markdownMMD "short superscript delimited by space"
             ("x^2 = y"
             =?> para ("x" <> superscript "2" <> space <> "= y"))
-          , test markdownMMD "short superscript delimeted by newline"
+          , test markdownMMD "short superscript delimited by newline"
             ("x^2\n"
             =?> para ("x" <> superscript "2"))
-          , test markdownMMD "short superscript delimeted by ExF"
+          , test markdownMMD "short superscript delimited by ExF"
             ("x^2"
             =?> para ("x" <> superscript "2"))
           , test markdownMMD "short superscript delimited by punctuation"
@@ -428,7 +449,7 @@ tests = [ testGroup "inline code"
                   <>
                   codeBlockWith ("",["haskell"],[]) "b"
                   <>
-                  rawBlock "html" "<div>\n\n"
+                  divWith ("",[],[]) mempty
           ]
 -- the round-trip properties frequently fail
 --        , testGroup "round trip"

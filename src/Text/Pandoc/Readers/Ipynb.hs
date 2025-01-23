@@ -4,7 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
    Module      : Text.Pandoc.Readers.Ipynb
-   Copyright   : Copyright (C) 2019-2022 John MacFarlane
+   Copyright   : Copyright (C) 2019-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -15,9 +15,9 @@ Ipynb (Jupyter notebook JSON format) reader for pandoc.
 -}
 module Text.Pandoc.Readers.Ipynb ( readIpynb )
 where
+import Crypto.Hash (hashWith, SHA1(SHA1))
 import Data.Char (isDigit)
 import Data.Maybe (fromMaybe)
-import Data.Digest.Pure.SHA (sha1, showDigest)
 import Text.Pandoc.Options
 import Control.Applicative ((<|>))
 import qualified Data.Scientific as Scientific
@@ -81,13 +81,13 @@ cellToBlocks opts lang c = do
                       Nothing -> mempty
                       Just (MimeAttachments m) -> M.toList m
   let ident = fromMaybe mempty $ cellId c
-  mapM_ addAttachment attachments
+  mapM_ (addAttachment (cellId c)) attachments
   case cellType c of
     Ipynb.Markdown -> do
       bs <- if isEnabled Ext_raw_markdown opts
                then return [RawBlock (Format "markdown") source]
                else do
-                 Pandoc _ bs <- walk fixImage <$> readMarkdown opts source
+                 Pandoc _ bs <- walk (fixImage (cellId c)) <$> readMarkdown opts source
                  return bs
       return $ B.divWith (ident,["cell","markdown"],kvs)
              $ B.fromList bs
@@ -121,14 +121,17 @@ cellToBlocks opts lang c = do
         <> outputBlocks
 
 -- Remove attachment: prefix from images...
-fixImage :: Inline -> Inline
-fixImage (Image attr lab (src,tit))
-  | "attachment:" `T.isPrefixOf` src = Image attr lab (T.drop 11 src, tit)
-fixImage x = x
+fixImage :: Maybe Text -> Inline -> Inline
+fixImage mbident (Image attr lab (src,tit))
+  | "attachment:" `T.isPrefixOf` src =
+     let src' = T.drop 11 src
+         qualifiedSrc = maybe src' (<> ("-" <> src')) mbident
+      in Image attr lab (qualifiedSrc, tit)
+fixImage _ x = x
 
-addAttachment :: PandocMonad m => (Text, MimeBundle) -> m ()
-addAttachment (fname, mimeBundle) = do
-  let fp = T.unpack fname
+addAttachment :: PandocMonad m => Maybe Text -> (Text, MimeBundle) -> m ()
+addAttachment mbident (fname, mimeBundle) = do
+  let fp = T.unpack $ maybe fname (<> ("-" <> fname)) mbident
   case M.toList (unMimeBundle mimeBundle) of
     (mimeType, BinaryData bs):_ ->
       insertMedia fp (Just mimeType) (BL.fromStrict bs)
@@ -183,16 +186,16 @@ handleData (JSONMeta metadata) (MimeBundle mb) =
                        Error _   -> mempty
                    _ -> mempty
       let metaPairs = jsonMetaToPairs meta
-      let bl = case d of
-                 BinaryData bs  -> BL.fromStrict bs
-                 TextualData t  -> BL.fromStrict $ UTF8.fromText t
-                 JsonData v     -> encode v
+      let bs = case d of
+                 BinaryData bs' -> bs'
+                 TextualData t  -> UTF8.fromText t
+                 JsonData v     -> BL.toStrict $ encode v
       -- SHA1 hash for filename
-      let fname = T.pack (showDigest (sha1 bl)) <>
+      let fname = T.pack (show (hashWith SHA1 bs)) <>
             case extensionFromMimeType mt of
               Nothing  -> ""
               Just ext -> "." <> ext
-      insertMedia (T.unpack fname) (Just mt) bl
+      insertMedia (T.unpack fname) (Just mt) (BL.fromStrict bs)
       return $ B.para $ B.imageWith ("",[],metaPairs) fname "" mempty
 
     dataBlock ("text/html", TextualData t)

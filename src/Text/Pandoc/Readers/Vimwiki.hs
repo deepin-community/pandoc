@@ -54,6 +54,7 @@ import Data.List (isInfixOf)
 import Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import Safe (lastMay)
 import Text.Pandoc.Builder (Blocks, Inlines, fromList, toList, trimInlines)
 import qualified Text.Pandoc.Builder as B (blockQuote, bulletList, code,
                                            codeBlockWith, definitionList,
@@ -70,19 +71,19 @@ import Text.Pandoc.Definition (Attr, Block (BulletList, OrderedList),
                                ListNumberStyle (..), Pandoc (..),
                                nullMeta)
 import Text.Pandoc.Options (ReaderOptions)
-import Text.Pandoc.Parsing (ParserState, ParserT, blanklines, emailAddress,
+import Text.Pandoc.Parsing (ParserState, ParsecT, blanklines, emailAddress,
                             many1Till, orderedListMarker, readWithM,
                             registerHeader, spaceChar, stateMeta,
                             stateOptions, uri, manyTillChar, manyChar, textStr,
                             many1Char, countChar, many1TillChar,
                             alphaNum, anyChar, char, newline, noneOf, oneOf,
-                            space, spaces, string)
+                            space, spaces, string, choice, eof, lookAhead,
+                            many1, many, manyTill, notFollowedBy,
+                            skipMany1, try, option,
+                            updateState, getState, (<|>))
 import Text.Pandoc.Sources (ToSources(..), Sources)
-import Text.Pandoc.Shared (splitTextBy, stringify, stripFirstAndLast,
-                           isURI, tshow)
-import Text.Parsec.Combinator (between, choice, eof, lookAhead, many1,
-                               manyTill, notFollowedBy, option, skipMany1)
-import Text.Parsec.Prim (getState, many, try, updateState, (<|>))
+import Text.Pandoc.Shared (splitTextBy, stringify, stripFirstAndLast, tshow)
+import Text.Pandoc.URI (isURI)
 
 readVimwiki :: (PandocMonad m, ToSources a)
             => ReaderOptions
@@ -95,7 +96,7 @@ readVimwiki opts s = do
        Left e       -> throwError e
        Right result -> return result
 
-type VwParser = ParserT Sources ParserState
+type VwParser = ParsecT Sources ParserState
 
 
 -- constants
@@ -249,14 +250,13 @@ syntax _ = []
 
 nameValue :: Text -> Maybe (Text, Text)
 nameValue s =
-  let t = splitTextBy (== '=') s in
-    if length t /= 2
-      then Nothing
-      else let (a, b) = (head t, last t) in
-             if (T.length b < 2) || ((T.head b, T.last b) /= ('"', '"'))
-               then Nothing
-               else Just (a, stripFirstAndLast b)
-
+  case splitTextBy (== '=') s of
+    [a,b]
+      | T.length b >= 2
+      , "\"" `T.isPrefixOf` b
+      , "\"" `T.isSuffixOf` b
+      -> Just (a, stripFirstAndLast b)
+    _ -> Nothing
 
 displayMath :: PandocMonad m => VwParser m Blocks
 displayMath = try $ do
@@ -291,8 +291,8 @@ mathTagLaTeX s = case s of
 
 mixedList :: PandocMonad m => VwParser m Blocks
 mixedList = try $ do
-  (bl, _) <- mixedList' (-1)
-  return $ head bl
+  ((bl:_), _) <- mixedList' (-1)
+  return bl
 
 mixedList' :: PandocMonad m => Int -> VwParser m ([Blocks], Int)
 mixedList' prevInd = do
@@ -345,8 +345,9 @@ blocksThenInline = try $ do
 
 listTodoMarker :: PandocMonad m => VwParser m Inlines
 listTodoMarker = try $ do
-  x <- between (many spaceChar >> char '[') (char ']' >> spaceChar)
-    (oneOf " .oOX")
+  x <- (many spaceChar >> char '[')
+       *> oneOf " .oOX"
+       <* (char ']' >> spaceChar)
   return $ makeListMarkerSpan x
 
 makeListMarkerSpan :: Char -> Inlines
@@ -406,8 +407,8 @@ table1 = try $ do
 -- headerless table
 table2 :: PandocMonad m => VwParser m ([Blocks], [[Blocks]])
 table2 = try $ do
-  trs <- many1 tableRow
-  return (replicate (length $ head trs) mempty, trs)
+  trs@(firstrow:_) <- many1 tableRow
+  return (replicate (length firstrow) mempty, trs)
 
 tableHeaderSeparator :: PandocMonad m => VwParser m ()
 tableHeaderSeparator = try $ do
@@ -506,26 +507,23 @@ bareURL = try $ do
 
 strong :: PandocMonad m => VwParser m Inlines
 strong = try $ do
-  s <- lookAhead $ between (char '*') (char '*') (many1 $ noneOf "*")
-  guard $ (head s `notElem` spaceChars)
-             && (last s `notElem` spaceChars)
   char '*'
-  contents <- mconcat <$>manyTill inline' (char '*'
-    >> notFollowedBy alphaNum)
-  return $ B.spanWith (makeId contents, [], []) mempty
-    <> B.strong contents
+  notFollowedBy (oneOf spaceChars)
+  contents <- mconcat <$> many1Till inline'
+                           (try (char '*' *> notFollowedBy alphaNum))
+  guard $ lastMay (toList contents) /= Just Space
+  return $ B.spanWith (makeId contents, [], []) mempty <> B.strong contents
 
 makeId :: Inlines -> Text
 makeId i = T.concat (stringify <$> toList i)
 
 emph :: PandocMonad m => VwParser m Inlines
 emph = try $ do
-  s <- lookAhead $ between (char '_') (char '_') (many1 $ noneOf "_")
-  guard $ (head s `notElem` spaceChars)
-          && (last s `notElem` spaceChars)
   char '_'
-  contents <- mconcat <$>manyTill inline' (char '_'
-    >> notFollowedBy alphaNum)
+  notFollowedBy (oneOf spaceChars)
+  contents <- mconcat <$> many1Till inline'
+                           (try (char '_' *> notFollowedBy alphaNum))
+  guard $ lastMay (toList contents) /= Just Space
   return $ B.emph contents
 
 strikeout :: PandocMonad m => VwParser m Inlines
@@ -600,8 +598,8 @@ procLink' :: Text -> Text
 procLink' s
   | T.take 6 s == "local:" = "file" <> T.drop 5 s
   | T.take 6 s == "diary:" = "diary/" <> T.drop 6 s
-  | or ((`T.isPrefixOf` s) <$> [ "http:", "https:", "ftp:", "file:", "mailto:",
-                              "news:", "telnet:" ])
+  | any (`T.isPrefixOf` s) [ "http:", "https:", "ftp:", "file:", "mailto:",
+                             "news:", "telnet:" ]
                              = s
   | s == ""                  = ""
   | T.last s == '/'          = s
@@ -623,8 +621,9 @@ tag = try $ do
   char ':'
   s <- manyTillChar (noneOf spaceChars) (try (char ':' >> lookAhead space))
   guard $ not $ "::" `T.isInfixOf` (":" <> s <> ":")
-  let ss = splitTextBy (==':') s
-  return $ mconcat $ makeTagSpan' (head ss):(makeTagSpan <$> tail ss)
+  case splitTextBy (==':') s of
+    [] -> fail "tag doesn't contain :"
+    (x:xs) -> return $ mconcat $ makeTagSpan' x : (makeTagSpan <$> xs)
 
 todoMark :: PandocMonad m => VwParser m Inlines
 todoMark = try $ do

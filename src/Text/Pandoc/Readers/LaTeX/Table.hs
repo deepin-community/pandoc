@@ -7,7 +7,7 @@ where
 import Data.Functor (($>))
 import Text.Pandoc.Class
 import Text.Pandoc.Readers.LaTeX.Parsing
-import Text.Pandoc.Readers.LaTeX.Types
+import Text.Pandoc.TeX
 import Text.Pandoc.Builder as B
 import qualified Data.Map as M
 import Data.Text (Text)
@@ -25,32 +25,35 @@ tableEnvironments :: PandocMonad m
                   => LP m Blocks
                   -> LP m Inlines
                   -> M.Map Text (LP m Blocks)
-tableEnvironments blocks inline =
+tableEnvironments block inline =
   M.fromList
   [ ("longtable",  env "longtable" $
           resetCaption *>
-            simpTable blocks inline "longtable" False >>= addTableCaption)
+            simpTable block inline "longtable" False >>= addTableCaption)
   , ("table",  env "table" $
           skipopts *> resetCaption *> blocks >>= addTableCaption)
-  , ("tabular*", env "tabular*" $ simpTable blocks inline "tabular*" True)
-  , ("tabularx", env "tabularx" $ simpTable blocks inline "tabularx" True)
-  , ("tabular", env "tabular"  $ simpTable blocks inline "tabular" False)
+  , ("tabular*", env "tabular*" $ simpTable block inline "tabular*" True)
+  , ("tabularx", env "tabularx" $ simpTable block inline "tabularx" True)
+  , ("tabular", env "tabular"  $ simpTable block inline "tabular" False)
   ]
+ where
+   blocks = mconcat <$> many block
 
 hline :: PandocMonad m => LP m ()
 hline = try $ do
   spaces
-  controlSeq "hline" <|>
-    (controlSeq "cline" <* braced) <|>
-    -- booktabs rules:
-    controlSeq "toprule" <|>
-    controlSeq "bottomrule" <|>
-    controlSeq "midrule" <|>
-    controlSeq "endhead" <|>
-    controlSeq "endfirsthead"
-  spaces
+  hasParenArg <-
+      (False <$ controlSeq "hline") <|>
+      (False <$ controlSeq "cline") <|>
+      (True <$ controlSeq "cmidrule") <|>
+      -- booktabs rules:
+      (True <$ controlSeq "toprule") <|>
+      (True <$ controlSeq "bottomrule") <|>
+      (True <$ controlSeq "midrule") <|>
+      (True <$ controlSeq "endhead") <|>
+      (True <$ controlSeq "endfirsthead")
   optional rawopt
-  return ()
+  when hasParenArg $ void $ optional (parenWrapped (() <$ singleChar))
 
 lbreak :: PandocMonad m => LP m Tok
 lbreak = (controlSeq "\\" <|> controlSeq "tabularnewline")
@@ -62,10 +65,11 @@ amp = symbol '&'
 -- Split a Word into individual Symbols (for parseAligns)
 splitWordTok :: PandocMonad m => LP m ()
 splitWordTok = do
-  inp <- getInput
+  TokStream macrosExpanded inp <- getInput
   case inp of
        (Tok spos Word t : rest) ->
-         setInput $ map (Tok spos Symbol . T.singleton) (T.unpack t) <> rest
+         setInput $ TokStream macrosExpanded
+                  $ map (Tok spos Symbol . T.singleton) (T.unpack t) <> rest
        _ -> return ()
 
 parseAligns :: PandocMonad m => LP m [(Alignment, ColWidth, ([Tok], [Tok]))]
@@ -85,11 +89,12 @@ parseAligns = try $ do
   let alignPrefix = symbol '>' >> braced
   let alignSuffix = symbol '<' >> braced
   let colWidth = try $ do
-        symbol '{'
-        ds <- trim . untokenize <$> manyTill anyTok (controlSeq "linewidth")
-        spaces
-        symbol '}'
-        return $ safeRead ds
+        ts <- braced
+        let isLinewidth (Tok _ (CtrlSeq "linewidth") _) = True
+            isLinewidth _ = False
+        case break isLinewidth ts of
+          (ds, _:_) -> return $ safeRead $ trim $ untokenize ds
+          _ -> return Nothing
   let alignSpec = do
         pref <- option [] alignPrefix
         spaces
@@ -104,12 +109,13 @@ parseAligns = try $ do
   let starAlign = do -- '*{2}{r}' == 'rr', we just expand like a macro
         symbol '*'
         spaces
-        ds <- trim . untokenize <$> braced
+        ds <- trim . untokenize <$> bracedOrToken
         spaces
-        spec <- braced
+        spec <- bracedOrToken
         case safeRead ds of
-             Just n  ->
-               getInput >>= setInput . (mconcat (replicate n spec) ++)
+             Just n  -> do
+               TokStream _ ts <- getInput
+               setInput $ TokStream False (mconcat (replicate n spec) ++ ts)
              Nothing -> Prelude.fail $ "Could not parse " <> T.unpack ds <> " as number"
   bgroup
   spaces
@@ -133,7 +139,7 @@ parseTableRow :: PandocMonad m
               -> Text   -- ^ table environment name
               -> [([Tok], [Tok])] -- ^ pref/suffixes
               -> LP m Row
-parseTableRow blocks inline envname prefsufs = do
+parseTableRow block inline envname prefsufs = do
   notFollowedBy (spaces *> end_ envname)
   -- contexts that can contain & that is not colsep:
   let canContainAmp (Tok _ (CtrlSeq "begin") _) = True
@@ -146,9 +152,12 @@ parseTableRow blocks inline envname prefsufs = do
         contents <- mconcat <$>
             many ( snd <$> withRaw
                      ((lookAhead (controlSeq "parbox") >>
-                       void blocks) -- #5711
+                       void block) -- #5711
                       <|>
                       (lookAhead (satisfyTok canContainAmp) >> void inline)
+                      <|>
+                      (lookAhead (controlSeq "begin") >>
+                       void block) -- #4746
                       <|>
                       (lookAhead (symbol '$') >> void inline))
                   <|>
@@ -160,16 +169,16 @@ parseTableRow blocks inline envname prefsufs = do
         option [] (count 1 amp)
         return $ map (setpos prefpos) pref ++ contents ++ map (setpos suffpos) suff
   rawcells <- mapM celltoks prefsufs
-  cells <- mapM (parseFromToks (parseTableCell blocks)) rawcells
+  cells <- mapM (parseFromToks (parseTableCell block)) rawcells
   spaces
   return $ Row nullAttr cells
 
 parseTableCell :: PandocMonad m => LP m Blocks -> LP m Cell
-parseTableCell blocks = do
+parseTableCell block = do
   spaces
   updateState $ \st -> st{ sInTableCell = True }
-  cell' <-   multicolumnCell blocks
-         <|> multirowCell blocks
+  cell' <-   multicolumnCell block
+         <|> multirowCell block
          <|> parseSimpleCell
          <|> parseEmptyCell
   updateState $ \st -> st{ sInTableCell = False }
@@ -179,14 +188,14 @@ parseTableCell blocks = do
     -- The parsing of empty cells is important in LaTeX, especially when dealing
     -- with multirow/multicolumn. See #6603.
     parseEmptyCell = spaces $> emptyCell
-    parseSimpleCell = simpleCell <$> (plainify <$> blocks)
+    parseSimpleCell = simpleCell <$> (plainify . mconcat <$> many block)
 
 
 cellAlignment :: PandocMonad m => LP m Alignment
 cellAlignment = skipMany (symbol '|') *> alignment <* skipMany (symbol '|')
   where
     alignment = do
-      c <- untoken <$> singleChar
+      c <- untoken <$> singleChar <* optional braced -- ignore args
       return $ case c of
         "l" -> AlignLeft
         "r" -> AlignRight
@@ -200,7 +209,7 @@ plainify bs = case toList bs of
                 _          -> bs
 
 multirowCell :: PandocMonad m => LP m Blocks -> LP m Cell
-multirowCell blocks = controlSeq "multirow" >> do
+multirowCell block = controlSeq "multirow" >> do
   -- Full prototype for \multirow macro is:
   --     \multirow[vpos]{nrows}[bigstruts]{width}[vmove]{text}
   -- However, everything except `nrows` and `text` make
@@ -210,16 +219,16 @@ multirowCell blocks = controlSeq "multirow" >> do
   _ <- optional $ symbol '[' *> manyTill anyTok (symbol ']')  -- bigstrut-related
   _ <- symbol '{' *> manyTill anyTok (symbol '}')             -- Cell width
   _ <- optional $ symbol '[' *> manyTill anyTok (symbol ']')  -- Length used for fine-tuning
-  content <- symbol '{' *> (plainify <$> blocks) <* symbol '}'
+  content <- symbol '{' *> (plainify . mconcat <$> many block) <* symbol '}'
   return $ cell AlignDefault (RowSpan nrows) (ColSpan 1) content
 
 multicolumnCell :: PandocMonad m => LP m Blocks -> LP m Cell
-multicolumnCell blocks = controlSeq "multicolumn" >> do
+multicolumnCell block = controlSeq "multicolumn" >> do
   span' <- fmap (fromMaybe 1 . safeRead . untokenize) braced
   alignment <- symbol '{' *> cellAlignment <* symbol '}'
 
   let singleCell = do
-        content <- plainify <$> blocks
+        content <- plainify . mconcat <$> many block
         return $ cell alignment (RowSpan 1) (ColSpan span') content
 
   -- Two possible contents: either a \multirow cell, or content.
@@ -227,7 +236,7 @@ multicolumnCell blocks = controlSeq "multicolumn" >> do
   -- Note that a \multirow cell can be nested in a \multicolumn,
   -- but not the other way around. See #6603
   let nestedCell = do
-        (Cell _ _ (RowSpan rs) _ bs) <- multirowCell blocks
+        (Cell _ _ (RowSpan rs) _ bs) <- multirowCell block
         return $ cell
                   alignment
                   (RowSpan rs)
@@ -316,7 +325,7 @@ simpTable :: PandocMonad m
           -> Text
           -> Bool
           -> LP m Blocks
-simpTable blocks inline envname hasWidthParameter = try $ do
+simpTable block inline envname hasWidthParameter = try $ do
   when hasWidthParameter $ () <$ tokWith inline
   skipopts
   colspecs <- parseAligns
@@ -330,10 +339,10 @@ simpTable blocks inline envname hasWidthParameter = try $ do
   skipMany hline
   spaces
   header' <- option [] . try . fmap (:[]) $
-             parseTableRow blocks inline envname prefsufs <*
+             parseTableRow block inline envname prefsufs <*
                lbreak <* many1 hline
   spaces
-  rows <- sepEndBy (parseTableRow blocks inline envname prefsufs)
+  rows <- sepEndBy (parseTableRow block inline envname prefsufs)
                     (lbreak <* optional (skipMany hline))
   spaces
   optional $ controlSeq "caption" *> setCaption inline
@@ -352,18 +361,18 @@ addTableCaption :: PandocMonad m => Blocks -> LP m Blocks
 addTableCaption = walkM go
   where go (Table attr c spec th tb tf) = do
           st <- getState
+          let capt = fromMaybe c $ sCaption st
           let mblabel = sLastLabel st
-          capt <- case (sCaption st, mblabel) of
-                   (Just ils, Nothing)  -> return $ caption Nothing (plain ils)
-                   (Just ils, Just lab) -> do
+          case mblabel of
+            Nothing -> return ()
+            Just lab -> do
                      num <- getNextNumber sLastTableNum
                      setState
                        st{ sLastTableNum = num
                          , sLabels = M.insert lab
                                     [Str (renderDottedNum num)]
                                     (sLabels st) }
-                     return $ caption Nothing (plain ils) -- add number??
-                   (Nothing, _)  -> return c
+          -- add num to caption?
           let attr' = case (attr, mblabel) of
                         ((_,classes,kvs), Just ident) ->
                            (ident,classes,kvs)

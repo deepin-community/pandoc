@@ -21,9 +21,12 @@ Text.Pandoc.Writers.Powerpoint.Presentation) to a zip archive.
 module Text.Pandoc.Writers.Powerpoint.Output ( presentationToArchive
                                              ) where
 
+import Control.Monad ( MonadPlus(mplus), foldM, unless )
 import Control.Monad.Except (throwError, catchError)
 import Control.Monad.Reader
+    ( asks, MonadReader(local), ReaderT(runReaderT) )
 import Control.Monad.State
+    ( StateT, gets, modify, evalStateT )
 import Codec.Archive.Zip
 import Data.List (intercalate, stripPrefix, nub, union, isPrefixOf, intersperse)
 import Data.Bifunctor (bimap)
@@ -47,6 +50,7 @@ import qualified Text.Pandoc.UTF8 as UTF8
 import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Error (PandocError(..))
 import qualified Text.Pandoc.Class.PandocMonad as P
+import Text.Pandoc.Data (readDataFile, readDefaultDataFile)
 import Text.Pandoc.Options
 import Text.Pandoc.MIME
 import qualified Data.ByteString.Lazy as BL
@@ -572,11 +576,12 @@ presentationToArchive :: PandocMonad m
                       => WriterOptions -> Meta -> Presentation -> m Archive
 presentationToArchive opts meta pres = do
   distArchive <- toArchive . BL.fromStrict <$>
-                      P.readDefaultDataFile "reference.pptx"
+                        readDefaultDataFile "reference.pptx"
   refArchive <- case writerReferenceDoc opts of
-                     Just f  -> toArchive <$> P.readFileLazy f
+                     Just f  -> toArchive . BL.fromStrict . fst
+                                  <$> P.fetchItem (T.pack f)
                      Nothing -> toArchive . BL.fromStrict <$>
-                        P.readDataFile "reference.pptx"
+                        readDataFile "reference.pptx"
 
   let (referenceLayouts, defaultReferenceLayouts) =
         (getLayoutsFromArchive refArchive, getLayoutsFromArchive distArchive)
@@ -909,6 +914,7 @@ registerMedia fp caption = do
                  Just Svg  -> Just ".svg"
                  Just Emf  -> Just ".emf"
                  Just Tiff -> Just ".tiff"
+                 Just Webp -> Just ".webp"
                  Nothing   -> Nothing
 
   let newGlobalId = fromMaybe (maxGlobalId + 1) (M.lookup fp globalIds)
@@ -918,7 +924,12 @@ registerMedia fp caption = do
   let mediaInfo = MediaInfo { mInfoFilePath = fp
                             , mInfoLocalId = maxLocalId + 1
                             , mInfoGlobalId = newGlobalId
-                            , mInfoMimeType = mbMt
+                            , mInfoMimeType =
+                                case mbMt of
+                                  -- see #9113
+                                  Just t | ";base64" `T.isSuffixOf` t
+                                     -> T.stripSuffix ";base64" t
+                                  x -> x
                             , mInfoExt = imgExt
                             , mInfoCaption = (not . null) caption
                             }
@@ -1044,7 +1055,8 @@ createCaption contentShapeDimensions paraElements = do
                [mknode "a:bodyPr" [] (), mknode "a:lstStyle" [] ()] <> elements
   return
     ( 1
-    ,  mknode "p:sp" [] [ mknode "p:nvSpPr" []
+    ,  surroundWithMathAlternate $
+       mknode "p:sp" [] [ mknode "p:nvSpPr" []
                           [ mknode "p:cNvPr" [("id","1"), ("name","TextBox 3")] ()
                           , mknode "p:cNvSpPr" [("txBox", "1")] ()
                           , mknode "p:nvPr" [] ()
@@ -1343,7 +1355,7 @@ shapeToElements layout (GraphicFrame tbls cptn) = map (bimap Just Elem) <$>
   graphicFrameToElements layout tbls cptn
 shapeToElements _ (RawOOXMLShape str) = return
   [(Nothing, Text (CData CDataRaw str Nothing))]
-shapeToElements layout shp = do
+shapeToElements layout shp@(TextBox _) = do
   (shapeId, element) <- shapeToElement layout shp
   return [(shapeId, Elem element)]
 
@@ -1401,18 +1413,18 @@ getDefaultTableStyle = do
   return $ findAttr (QName "def" Nothing Nothing) tblStyleLst
 
 graphicToElement :: PandocMonad m => Integer -> Graphic -> P m Element
-graphicToElement tableWidth (Tbl tblPr hdrCells rows) = do
-  let colWidths = if null hdrCells
-                  then case rows of
-                         r : _ | not (null r) -> replicate (length r) $
+graphicToElement tableWidth (Tbl widths tblPr hdrCells rows) = do
+  let totalWidth = sum widths
+  let colWidths = if any (== 0.0) widths
+                  then if null hdrCells
+                      then case rows of
+                         r@(_:_) : _ -> replicate (length r) $
                                                  tableWidth `div` toInteger (length r)
-                         -- satisfy the compiler. This is the same as
-                         -- saying that rows is empty, but the compiler
-                         -- won't understand that `[]` exhausts the
-                         -- alternatives.
-                         _ -> []
-                  else replicate (length hdrCells) $
-                       tableWidth `div` toInteger (length hdrCells)
+                         []: _ -> []
+                         [] -> []
+                      else replicate (length hdrCells) $
+                           tableWidth `div` toInteger (length hdrCells)
+                  else map (\w -> round $ w / totalWidth * fromIntegral tableWidth) widths
 
   let cellToOpenXML paras =
         do elements <- mapM paragraphToElement paras
@@ -1528,7 +1540,9 @@ nonBodyTextToElement layout phTypes paraElements
       let txBody = mknode "p:txBody" [] $
                    [mknode "a:bodyPr" [] (), mknode "a:lstStyle" [] ()] <>
                    [element]
-      return (Just shapeIdNum, replaceNamedChildren ns "p" "txBody" [txBody] sp)
+      return (Just shapeIdNum,
+              surroundWithMathAlternate $
+                replaceNamedChildren ns "p" "txBody" [txBody] sp)
   -- XXX: TODO
   | otherwise = return (Nothing, mknode "p:sp" [] ())
 
@@ -1998,6 +2012,7 @@ speakerNotesBody paras = do
   let txBody = mknode "p:txBody" [] $
                [mknode "a:bodyPr" [] (), mknode "a:lstStyle" [] ()] <> elements
   return $
+    surroundWithMathAlternate $
     mknode "p:sp" []
     [ mknode "p:nvSpPr" []
       [ mknode "p:cNvPr" [ ("id", "3")

@@ -3,7 +3,7 @@
 {-# LANGUAGE FlexibleInstances    #-}
 {- |
    Module      : Tests.Helpers
-   Copyright   : © 2006-2022 John MacFarlane
+   Copyright   : © 2006-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley@edu>
@@ -36,6 +36,7 @@ import Test.Tasty
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Test.Tasty.HUnit
 import Text.Pandoc.Builder (Blocks, Inlines, doc, plain)
+import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Class
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
@@ -88,12 +89,14 @@ setupEnvironment testExePath = do
   mldpath   <- Env.lookupEnv "LD_LIBRARY_PATH"
   mdyldpath <- Env.lookupEnv "DYLD_LIBRARY_PATH"
   mpdd <- Env.lookupEnv "pandoc_datadir"
+  mbpath <- Env.lookupEnv "PATH"
   -- Note that Cabal sets the pandoc_datadir environment variable
   -- to point to the source directory, since otherwise getDataFilename
   -- will look in the data directory into which pandoc will be installed
   -- (but has not yet been).  So when we spawn a new process with
   -- pandoc, we need to make sure this environment variable is set.
-  return $ ("PATH",takeDirectory testExePath) :
+  return $ ("PATH",takeDirectory testExePath <>
+                    maybe mempty (searchPathSeparator:) mbpath) :
            ("TMP",".") :
            ("LANG","en_US.UTF-8") :
            ("HOME", "./") :
@@ -149,6 +152,12 @@ instance ToString Pandoc where
 
 instance ToString Blocks where
   toString = unpack . purely (writeNative def) . toPandoc
+
+instance ToString [Block] where
+  toString = toString . B.fromList
+
+instance ToString Block where
+  toString = toString . B.singleton
 
 instance ToString Inlines where
   toString = unpack . trimr . purely (writeNative def) . toPandoc

@@ -28,7 +28,7 @@ Figure \cref{fig:1}
     , Link
         ( ""
         , []
-        , [ ( "reference-type" , "ref" )
+        , [ ( "reference-type" , "ref+label" )
           , ( "reference" , "fig:1" )
           ]
         )
@@ -48,7 +48,7 @@ Figure \vref{fig:1}
     , Link
         ( ""
         , []
-        , [ ( "reference-type" , "ref+page" )
+        , [ ( "reference-type" , "ref" )
           , ( "reference" , "fig:1" )
           ]
         )
@@ -66,7 +66,7 @@ Figure \vref{fig:1}
     [ Link
         ( ""
         , []
-        , [ ( "reference-type" , "autoref" )
+        , [ ( "reference-type" , "ref+label" )
           , ( "reference" , "fig:flowchart" )
           ]
         )
@@ -133,11 +133,12 @@ Accuracy~\eqref{eq:Accuracy} is the proportion, measuring true results among all
 
 Figure \ref{fig:Logo} illustrated the SVG logo
 ^D
-[ Para
-    [ Image
-        ( "fig:Logo" , [] , [] )
-        [ Str "Logo" ]
-        ( "command/SVG_logo.svg" , "fig:" )
+[ Figure
+    ( "fig:Logo" , [] , [] )
+    (Caption Nothing [ Plain [ Str "Logo" ] ])
+    [ Plain
+        [ Image ( "" , [] , [] ) [] ( "command/SVG_logo.svg" , "" )
+        ]
     ]
 , Para
     [ Str "Figure"
@@ -195,25 +196,28 @@ Figure \ref{fig:Logo2} illustrated the SVG logo
 Figure \ref{fig:Logo3} illustrated the SVG logo
 ^D
 [ Header 1 ( "one" , [] , [] ) [ Str "One" ]
-, Para
-    [ Image
-        ( "fig:Logo" , [] , [] )
-        [ Str "Logo" ]
-        ( "command/SVG_logo.svg" , "fig:" )
+, Figure
+    ( "fig:Logo" , [] , [] )
+    (Caption Nothing [ Plain [ Str "Logo" ] ])
+    [ Plain
+        [ Image ( "" , [] , [] ) [] ( "command/SVG_logo.svg" , "" )
+        ]
     ]
-, Para
-    [ Image
-        ( "fig:Logo2" , [] , [] )
-        [ Str "Logo2" ]
-        ( "command/SVG_logo2.svg" , "fig:" )
+, Figure
+    ( "fig:Logo2" , [] , [] )
+    (Caption Nothing [ Plain [ Str "Logo2" ] ])
+    [ Plain
+        [ Image ( "" , [] , [] ) [] ( "command/SVG_logo2.svg" , "" )
+        ]
     ]
 , Header 1 ( "two" , [] , [] ) [ Str "Two" ]
 , Header 2 ( "subone" , [] , [] ) [ Str "Subone" ]
-, Para
-    [ Image
-        ( "fig:Logo3" , [] , [] )
-        [ Str "Logo3" ]
-        ( "command/SVG_logo3.svg" , "fig:" )
+, Figure
+    ( "fig:Logo3" , [] , [] )
+    (Caption Nothing [ Plain [ Str "Logo3" ] ])
+    [ Plain
+        [ Image ( "" , [] , [] ) [] ( "command/SVG_logo3.svg" , "" )
+        ]
     ]
 , Para
     [ Str "Figure"

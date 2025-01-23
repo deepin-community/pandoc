@@ -2,7 +2,7 @@
 {- |
    Module      : Tests.Readers.Man
    Copyright   : © 2018-2019 Yan Pas <yanp.bugz@gmail.com>,
-                   2018-2022 John MacFarlane
+                   2018-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -15,17 +15,17 @@ module Tests.Readers.Man (tests) where
 
 import Data.Text (Text)
 import Test.Tasty
+import Test.Tasty.HUnit (HasCallStack)
 import Tests.Helpers
 import Text.Pandoc
 import Text.Pandoc.Arbitrary ()
 import Text.Pandoc.Builder
-import Text.Pandoc.Readers.Man
 
 man :: Text -> Pandoc
 man = purely $ readMan def
 
 infix 4 =:
-(=:) :: ToString c
+(=:) :: (ToString c, HasCallStack)
      => String -> (Text, c) -> TestTree
 (=:) = test man
 

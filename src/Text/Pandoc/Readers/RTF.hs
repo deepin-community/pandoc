@@ -1,8 +1,9 @@
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE BangPatterns      #-}
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Readers.RTF
-   Copyright   : Copyright (C) 2021-2022 John MacFarlane
+   Copyright   : Copyright (C) 2021-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane (<jgm@berkeley.edu>)
@@ -18,6 +19,7 @@ import qualified Data.IntMap as IntMap
 import qualified Data.Sequence as Seq
 import Control.Monad
 import Control.Monad.Except (throwError)
+import Crypto.Hash (hashWith, SHA1(SHA1))
 import Data.List (find, foldl')
 import Data.Word (Word8, Word16)
 import Data.Default
@@ -26,14 +28,14 @@ import qualified Data.Text as T
 import qualified Data.Text.Read as TR
 import Text.Pandoc.Builder (Blocks, Inlines)
 import qualified Text.Pandoc.Builder as B
-import Text.Pandoc.Class.PandocMonad (PandocMonad (..), insertMedia)
+import Text.Pandoc.Class (PandocMonad (..), insertMedia, report)
 import Text.Pandoc.Definition
 import Text.Pandoc.Options
 import Text.Pandoc.Parsing
-import Text.Pandoc.Shared (safeRead, tshow)
+import Text.Pandoc.Logging (LogMessage(UnsupportedCodePage))
+import Text.Pandoc.Shared (tshow)
 import Data.Char (isAlphaNum, chr, isAscii, isLetter, isSpace, ord)
 import qualified Data.ByteString.Lazy as BL
-import Data.Digest.Pure.SHA (sha1, showDigest)
 import Data.Maybe (mapMaybe, fromMaybe)
 import Safe (lastMay, initSafe, headDef)
 -- import Debug.Trace
@@ -183,7 +185,7 @@ instance Default Properties where
                     , gInTable = False
                     }
 
-type RTFParser m = ParserT Sources RTFState m
+type RTFParser m = ParsecT Sources RTFState m
 
 data ListType = Bullet | Ordered ListAttributes
   deriving (Show, Eq)
@@ -202,71 +204,83 @@ newtype TableRow = TableRow [Blocks] -- cells in reverse order
 parseRTF :: PandocMonad m => RTFParser m Pandoc
 parseRTF = do
   skipMany nl
-  toks <- many tok
-  -- return $! traceShowId toks
-  bs <- (case toks of
-          -- if we start with {\rtf1...}, parse that and ignore
-          -- what follows (which in certain cases can be non-RTF content)
-          rtftok@(Tok _ (Grouped (Tok _ (ControlWord "rtf" (Just 1)) : _))) : _
-            -> foldM processTok mempty [rtftok]
-          _ -> foldM processTok mempty toks)
-        >>= emitBlocks
+  bs <- many tok >>= foldM processTok mempty >>= emitBlocks
   unclosed <- closeContainers
   let doc = B.doc $ bs <> unclosed
   kvs <- sMetadata <$> getState
   pure $ foldr (uncurry B.setMeta) doc kvs
 
-data Tok = Tok SourcePos TokContents
+data Tok = Tok !SourcePos !TokContents
   deriving (Show, Eq)
 
 data TokContents =
-    ControlWord Text (Maybe Int)
-  | ControlSymbol Char
-  | UnformattedText Text
-  | BinData BL.ByteString
-  | HexVal Word8
+    ControlWord !Text !(Maybe Int)
+  | ControlSymbol !Char
+  | UnformattedText !Text
+  | BinData !BL.ByteString
+  | HexVals [Word8]
   | Grouped [Tok]
   deriving (Show, Eq)
 
 tok :: PandocMonad m => RTFParser m Tok
 tok = do
   pos <- getPosition
-  Tok pos <$> ((controlThing <|> unformattedText <|> grouped) <* skipMany nl)
+  Tok pos <$!> ((controlThing <|> unformattedText <|> grouped) <* skipMany nl)
  where
   controlThing = do
     char '\\' *>
-      ( binData
-     <|> (ControlWord <$> letterSequence <*> (parameter <* optional delimChar))
-     <|> (HexVal <$> hexVal)
+      ( controlWord
+     <|> (HexVals <$> many1 hexVal)
      <|> (ControlSymbol <$> anyChar) )
-  binData = try $ do
-    string "bin" <* notFollowedBy letter
-    n <- fromMaybe 0 <$> parameter
-    spaces
-    -- NOTE: We assume here that if the document contains binary
-    -- data, it will not be valid UTF-8 and hence it will have been
-    -- read as latin1, so we can recover the data in the following
-    -- way.  This is probably not completely reliable, but I don't
-    -- know if we can do better without making this reader take
-    -- a ByteString input.
-    dat <- BL.pack . map (fromIntegral . ord) <$> count n anyChar
-    return $ BinData dat
+  controlWord = do
+    name <- letterSequence
+    param <- parameter <* optional delimChar
+    case name of
+      "bin" -> do
+        let n = fromMaybe 0 param
+        spaces
+        -- NOTE: We assume here that if the document contains binary
+        -- data, it will not be valid UTF-8 and hence it will have been
+        -- read as latin1, so we can recover the data in the following
+        -- way.  This is probably not completely reliable, but I don't
+        -- know if we can do better without making this reader take
+        -- a ByteString input.
+        dat <- BL.pack . map (fromIntegral . ord) <$> count n anyChar
+        return $! BinData dat
+      _ -> return $! ControlWord name param
   parameter = do
-    hyph <- string "-" <|> pure ""
+    hyph <- option False $ True <$ char '-'
     rest <- many digit
-    let pstr = T.pack $ hyph <> rest
-    return $ safeRead pstr
+    if null rest
+       then return Nothing
+       else do
+         let pstr = T.pack rest
+         case TR.decimal pstr of
+           Right (!i,_) ->
+                return $! Just $! if hyph
+                                     then (-1) * i
+                                     else i
+           _ -> return Nothing
   hexVal = do
     char '\''
     x <- hexDigit
     y <- hexDigit
     return $ hexToWord (T.pack [x,y])
   letterSequence = T.pack <$> many1 (satisfy (\c -> isAscii c && isLetter c))
-  unformattedText =
-    UnformattedText . T.pack . mconcat <$>
-      many1 (   many1 (satisfy (not . isSpecial))
-            <|> ("" <$ nl))
-  grouped = Grouped <$> (char '{' *> skipMany nl *> manyTill tok (char '}'))
+  unformattedText = do
+    ts <-  filter (\c -> c /= '\r' && c /= '\n') <$>
+           ( many1 (satisfy (\c -> not (isSpecial c) || c == '\r' || c == '\n')))
+    return $! UnformattedText $! T.pack ts
+  grouped = do
+    char '{'
+    skipMany nl
+    ts <- manyTill tok (char '}')
+    case ts of
+       Tok _ (ControlWord "rtf" (Just 1)) : _ -> do
+         setInput mempty -- discard remaining input: content after the \rtf1
+                         -- group can be non-RTF
+       _ -> return ()
+    return $! Grouped ts
 
 nl :: PandocMonad m => RTFParser m ()
 nl = void (char '\n' <|> char '\r')
@@ -332,7 +346,7 @@ addFormatting (props, txt) =
 addText :: PandocMonad m => Text -> RTFParser m ()
 addText t = do
   gs <- sGroupStack <$> getState
-  let props = case gs of
+  let !props = case gs of
                 (x:_) -> x
                 _ -> def
   updateState (\s -> s{ sTextContent = (props, t) : sTextContent s })
@@ -410,14 +424,27 @@ processTok :: PandocMonad m => Blocks -> Tok -> RTFParser m Blocks
 processTok bs (Tok pos tok') = do
   setPosition pos
   case tok' of
-    HexVal{} -> return ()
+    HexVals{} -> return ()
     UnformattedText{} -> return ()
     _ -> updateState $ \s -> s{ sEatChars = 0 }
   case tok' of
-    Grouped (Tok _ (ControlSymbol '*') : toks) ->
-      bs <$ (do oldTextContent <- sTextContent <$> getState
-                processTok mempty (Tok pos (Grouped toks))
-                updateState $ \st -> st{ sTextContent = oldTextContent })
+    Grouped (Tok _ (ControlSymbol '*') : toks@(firsttok:_)) ->
+      case firsttok of
+        Tok _ (ControlWord "shppict" _) -> inGroup (foldM processTok bs toks)
+        Tok _ (ControlWord "shpinst" _) -> inGroup (foldM processTok bs toks)
+        _ -> bs <$ (do oldTextContent <- sTextContent <$> getState
+                       processTok mempty (Tok pos (Grouped toks))
+                       updateState $ \st -> st{ sTextContent = oldTextContent })
+    Grouped (Tok _ (ControlWord "shp" _) : toks) ->
+      inGroup (foldM processTok bs toks)
+    Grouped [ Tok _ (ControlWord "sp" _)
+            , Tok _ (Grouped [Tok _ (ControlWord "sn" _),
+                      Tok _ (UnformattedText sn)])
+            , Tok _ (Grouped (Tok _ (ControlWord "sv" _) : svtoks))
+            ] ->
+      case sn of
+        "pib" -> inGroup (foldM processTok bs svtoks)
+        _ -> pure bs
     Grouped (Tok _ (ControlWord "fonttbl" _) : toks) -> inGroup $ do
       updateState $ \s -> s{ sFontTable = processFontTable toks }
       pure bs
@@ -485,19 +512,22 @@ processTok bs (Tok pos tok') = do
              addText (T.drop n t)
           | otherwise -> do
              updateState $ \s -> s{ sEatChars = n - T.length t }
-    HexVal n -> bs <$ do
+    HexVals ws -> bs <$ do
       eatChars <- sEatChars <$> getState
-      if eatChars == 0
-         then do
-           charset <- sCharSet <$> getState
-           case charset of
-             ANSI -> addText (T.singleton $ ansiToChar n)
-             Mac  -> addText (T.singleton $ macToChar n)
-             Pc   -> addText (T.singleton $ pcToChar n)
-             Pca  -> addText (T.singleton $ pcaToChar n)
-         else updateState $ \s -> s{ sEatChars = eatChars - 1 }
+      let ws' = drop eatChars ws
+      updateState $ \s -> s{ sEatChars = if null ws'
+                                            then eatChars - length ws
+                                            else 0 }
+      charset <- sCharSet <$> getState
+      case charset of
+        ANSI -> addText $ T.pack $ map defaultAnsiWordToChar ws'
+        Mac  -> addText $ T.pack $ map macToChar ws'
+        Pc   -> addText $ T.pack $ map pcToChar ws'
+        Pca  -> addText $ T.pack $ map pcaToChar ws'
     ControlWord "ansi" _ -> bs <$
       updateState (\s -> s{ sCharSet = ANSI })
+    ControlWord "ansicpg" (Just cpg) | cpg /= 1252 -> bs <$
+      report (UnsupportedCodePage cpg)
     ControlWord "mac" _ -> bs <$
       updateState (\s -> s{ sCharSet = Mac })
     ControlWord "pc" _ -> bs <$
@@ -528,7 +558,8 @@ processTok bs (Tok pos tok') = do
                                     TableRow (curCell : cs) : rs
                                   [] -> [TableRow [curCell]] -- shouldn't happen
                            , sCurrentCell = mempty }
-    ControlWord "intbl" _ -> bs <$ modifyGroup (\g -> g{ gInTable = True })
+    ControlWord "intbl" _ ->
+      emitBlocks bs <* modifyGroup (\g -> g{ gInTable = True })
     ControlWord "plain" _ -> bs <$ modifyGroup (const def)
     ControlWord "lquote" _ -> bs <$ addText "\x2018"
     ControlWord "rquote" _ -> bs <$ addText "\x2019"
@@ -577,6 +608,9 @@ processTok bs (Tok pos tok') = do
       modifyGroup (\g -> g{ gSub = boolParam mbp })
     ControlWord "super" mbp -> bs <$
       modifyGroup (\g -> g{ gSuper = boolParam mbp })
+    ControlWord "nosupersub" mbp -> bs <$
+      modifyGroup (\g -> g{ gSuper = not $ boolParam mbp
+                          , gSub = not $ boolParam mbp })
     ControlWord "up" mbp -> bs <$
       modifyGroup (\g -> g{ gSuper = boolParam mbp })
     ControlWord "strike" mbp -> bs <$
@@ -886,7 +920,7 @@ handlePict toks = do
           Nothing -> (Nothing, "")
   case mimetype of
     Just mt -> do
-      let pictname = showDigest (sha1 bytes) <> ext
+      let pictname = show (hashWith SHA1 $ BL.toStrict bytes) <> ext
       insertMedia pictname (Just mt) bytes
       modifyGroup $ \g -> g{ gImage = Just pict{ picName = T.pack pictname,
                                                  picBytes = bytes } }
@@ -933,39 +967,38 @@ processFontTable = snd . foldl' go (0, mempty)
      (Grouped ts) -> foldl' go (fontnum, tbl) ts
      _ -> (fontnum, tbl)
 
-
-ansiToChar :: Word8 -> Char
-ansiToChar i = chr $
+defaultAnsiWordToChar :: Word8 -> Char
+defaultAnsiWordToChar i =
   case i of
-    128 -> 8364
-    130 -> 8218
-    131 -> 402
-    132 -> 8222
-    133 -> 8230
-    134 -> 8224
-    135 -> 8225
-    136 -> 710
-    137 -> 8240
-    138 -> 352
-    139 -> 8249
-    140 -> 338
-    142 -> 381
-    145 -> 8216
-    146 -> 8217
-    147 -> 8220
-    148 -> 8221
-    149 -> 8226
-    150 -> 8211
-    151 -> 8212
-    152 -> 732
-    153 -> 8482
-    154 -> 353
-    155 -> 8250
-    156 -> 339
-    158 -> 382
-    159 -> 376
-    173 -> 0xAD
-    _ -> fromIntegral i
+    128 -> '\8364'
+    130 -> '\8218'
+    131 -> '\402'
+    132 -> '\8222'
+    133 -> '\8230'
+    134 -> '\8224'
+    135 -> '\8225'
+    136 -> '\710'
+    137 -> '\8240'
+    138 -> '\352'
+    139 -> '\8249'
+    140 -> '\338'
+    142 -> '\381'
+    145 -> '\8216'
+    146 -> '\8217'
+    147 -> '\8220'
+    148 -> '\8221'
+    149 -> '\8226'
+    150 -> '\8211'
+    151 -> '\8212'
+    152 -> '\732'
+    153 -> '\8482'
+    154 -> '\353'
+    155 -> '\8250'
+    156 -> '\339'
+    158 -> '\382'
+    159 -> '\376'
+    173 -> '\xAD'
+    _ -> chr (fromIntegral i)
 
 macToChar :: Word8 -> Char
 macToChar i = chr $

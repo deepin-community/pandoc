@@ -3,10 +3,10 @@
 {-# LANGUAGE TupleSections #-}
 {- |
    Module      : Text.Pandoc.Writers.JATS.Table
-   Copyright   : © 2020-2022 Albert Krewinkel
+   Copyright   : © 2020-2024 Albert Krewinkel
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <tarleb@zeitkraut.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
    Stability   : alpha
    Portability : portable
 
@@ -234,8 +234,13 @@ tableCellToJats :: PandocMonad m
 tableCellToJats opts ctype colAlign (Cell attr align rowspan colspan item) = do
   blockToJats   <- asks jatsBlockWriter
   inlinesToJats <- asks jatsInlinesWriter
+  let fixBreak LineBreak = RawInline (Format "jats") "<break/>"
+      fixBreak x         = x
   let cellContents = \case
-        [Plain inlines] -> inlinesToJats opts inlines
+        [Plain inlines] -> inlinesToJats opts
+                             (map fixBreak inlines)
+                             -- Note: <break/> is allowed only as a direct
+                             -- child of <td>, so we don't use walk.
         blocks          -> blockToJats needsWrapInCell opts blocks
   let tag' = case ctype of
         BodyCell   -> "td"

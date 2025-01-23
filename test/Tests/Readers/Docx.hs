@@ -235,6 +235,14 @@ tests = [ testGroup "document"
             "collapse overlapping targets (anchor spans)"
             "docx/overlapping_targets.docx"
             "docx/overlapping_targets.native"
+          , testCompare
+            "anchor in header after anchor"
+            "docx/anchor_header_after_anchor.docx"
+            "docx/anchor_header_after_anchor.native"
+          , testCompare
+            "text in shape format"
+            "docx/text_in_shape_format.docx"
+            "docx/text_in_shape_format.native"
           ]
         , testGroup "blocks"
           [ testCompare
@@ -294,6 +302,10 @@ tests = [ testGroup "document"
             "docx/definition_list.docx"
             "docx/definition_list.native"
           , testCompare
+            "task lists"
+            "docx/task_list.docx"
+            "docx/task_list.native"
+          , testCompare
             "custom defined lists in styles"
             "docx/german_styled_lists.docx"
             "docx/german_styled_lists.native"
@@ -316,7 +328,7 @@ tests = [ testGroup "document"
           , testCompare
             "blockquotes (parsing indent as blockquote)"
             "docx/block_quotes.docx"
-            "docx/block_quotes_parse_indent.native"
+            "docx/block_quotes.native"
           , testCompare
             "blockquotes (parsing indent relative to the indent of the parent style as blockquote)"
             "docx/relative_indentation_blockquotes.docx"
@@ -369,6 +381,26 @@ tests = [ testGroup "document"
             "dropcap paragraphs"
             "docx/drop_cap.docx"
             "docx/drop_cap.native"
+          ]
+        , testGroup "citations"
+          [ testCompare
+            "zotero with -citations"
+            "docx/zotero_citations.docx"
+            "docx/zotero_citations_minus.native"
+          , testCompareWithOpts def{readerExtensions =
+                  extensionsFromList [Ext_citations]}
+            "zotero with +citations"
+            "docx/zotero_citations.docx"
+            "docx/zotero_citations_plus.native"
+          , testCompare
+            "mendeley with -citations"
+            "docx/mendeley_citations.docx"
+            "docx/mendeley_citations_minus.native"
+          , testCompareWithOpts def{readerExtensions =
+                  extensionsFromList [Ext_citations]}
+            "mendeley with +citations"
+            "docx/mendeley_citations.docx"
+            "docx/mendeley_citations_plus.native"
           ]
         , testGroup "track changes"
           [ testCompare

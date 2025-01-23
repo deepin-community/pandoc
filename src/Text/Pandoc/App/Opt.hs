@@ -7,7 +7,7 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {- |
    Module      : Text.Pandoc.App.Opt
-   Copyright   : Copyright (C) 2006-2022 John MacFarlane
+   Copyright   : Copyright (C) 2006-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley@edu>
@@ -18,6 +18,7 @@ Options for pandoc when used as an app.
 -}
 module Text.Pandoc.App.Opt (
             Opt(..)
+          , OptInfo(..)
           , LineEnding (..)
           , IpynbOutput (..)
           , DefaultsState (..)
@@ -25,7 +26,9 @@ module Text.Pandoc.App.Opt (
           , applyDefaults
           , fullDefaultsPath
           ) where
-import Control.Monad.Except (MonadIO, liftIO, throwError, (>=>), foldM)
+import Control.Monad.Except (throwError)
+import Control.Monad.Trans (MonadIO, liftIO)
+import Control.Monad ((>=>), foldM)
 import Control.Monad.State.Strict (StateT, modify, gets)
 import System.FilePath ( addExtension, (</>), takeExtension, takeDirectory )
 import System.Directory ( canonicalizePath )
@@ -38,12 +41,14 @@ import Text.Pandoc.Options (TopLevelDivision (TopLevelDefault),
                             TrackChanges (AcceptChanges),
                             WrapOption (WrapAuto), HTMLMathMethod (PlainMath),
                             ReferenceLocation (EndOfDocument),
+                            CaptionPosition (..),
                             ObfuscationMethod (NoObfuscation),
                             CiteMethod (Citeproc))
 import Text.Pandoc.Class (readFileStrict, fileExists, setVerbosity, report,
                           PandocMonad(lookupEnv), getUserDataDir)
 import Text.Pandoc.Error (PandocError (PandocParseError, PandocSomeError))
-import Text.Pandoc.Shared (defaultUserDataDir, findM, ordNub)
+import Data.Containers.ListUtils (nubOrd)
+import Text.Pandoc.Data (defaultUserDataDir)
 import qualified Text.Pandoc.Parsing as P
 import Text.Pandoc.Readers.Metadata (yamlMap)
 import Text.Pandoc.Class.PandocPure
@@ -54,7 +59,8 @@ import qualified Data.Text as T
 import qualified Data.Map as M
 import qualified Data.ByteString.Char8 as B8
 import Text.Pandoc.Definition (Meta(..), MetaValue(..))
-import Data.Aeson (defaultOptions, Options(..), Result(..), fromJSON, camelTo2)
+import Data.Aeson (defaultOptions, Options(..), Result(..),
+                   genericToJSON, fromJSON, camelTo2)
 import Data.Aeson.TH (deriveJSON)
 import Control.Applicative ((<|>))
 import Data.Yaml
@@ -77,6 +83,22 @@ data IpynbOutput =
 $(deriveJSON
    defaultOptions{ fieldLabelModifier = map toLower . drop 11 } ''IpynbOutput)
 
+-- | Option parser results requesting informational output.
+data OptInfo =
+     BashCompletion
+   | ListInputFormats
+   | ListOutputFormats
+   | ListExtensions (Maybe Text)
+   | ListHighlightLanguages
+   | ListHighlightStyles
+   | PrintDefaultTemplate (Maybe FilePath) Text
+   | PrintDefaultDataFile (Maybe FilePath) Text
+   | PrintHighlightStyle (Maybe FilePath) Text
+   | VersionInfo
+   | Help
+   | OptError PandocError
+   deriving (Show, Generic)
+
 -- | Data structure for command line options.
 data Opt = Opt
     { optTabStop               :: Int     -- ^ Number of spaces per tab
@@ -85,6 +107,8 @@ data Opt = Opt
     , optFrom                  :: Maybe Text  -- ^ Reader format
     , optTo                    :: Maybe Text  -- ^ Writer format
     , optTableOfContents       :: Bool    -- ^ Include table of contents
+    , optListOfFigures         :: Bool    -- ^ Include list of figures
+    , optListOfTables          :: Bool    -- ^ Include list of tables
     , optShiftHeadingLevelBy   :: Int     -- ^ Shift heading level by
     , optTemplate              :: Maybe FilePath  -- ^ Custom template
     , optVariables             :: Context Text    -- ^ Template variables to set
@@ -96,7 +120,9 @@ data Opt = Opt
     , optNumberOffset          :: [Int]   -- ^ Starting number for sections
     , optSectionDivs           :: Bool    -- ^ Put sections in div tags in HTML
     , optIncremental           :: Bool    -- ^ Use incremental lists in Slidy/Slideous/S5
-    , optSelfContained         :: Bool    -- ^ Make HTML accessible offline
+    , optSelfContained         :: Bool    -- ^ Make HTML accessible offline (deprecated)
+    , optEmbedResources        :: Bool    -- ^ Make HTML accessible offline
+    , optLinkImages            :: Bool    -- ^ Link ODT images rather than embedding
     , optHtmlQTags             :: Bool    -- ^ Use <q> tags in HTML
     , optHighlightStyle        :: Maybe Text -- ^ Style to use for highlighted code
     , optSyntaxDefinitions     :: [FilePath]  -- ^ xml syntax defs to load
@@ -104,11 +130,13 @@ data Opt = Opt
     , optHTMLMathMethod        :: HTMLMathMethod -- ^ Method to print HTML math
     , optAbbreviations         :: Maybe FilePath -- ^ Path to abbrevs file
     , optReferenceDoc          :: Maybe FilePath -- ^ Path of reference doc
+    , optSplitLevel            :: Int     -- ^ Header level at which to split documents in epub and chunkedhtml
+    , optChunkTemplate         :: Maybe Text -- ^ Template to use for chunk filenames
     , optEpubSubdirectory      :: String -- ^ EPUB subdir in OCF container
     , optEpubMetadata          :: Maybe FilePath   -- ^ EPUB metadata
     , optEpubFonts             :: [FilePath] -- ^ EPUB fonts to embed
-    , optEpubChapterLevel      :: Int     -- ^ Header level at which to split chapters
     , optEpubCoverImage        :: Maybe FilePath -- ^ Cover image for epub
+    , optEpubTitlePage         :: Bool -- ^ INclude title page in EPUB
     , optTOCDepth              :: Int     -- ^ Number of levels to include in TOC
     , optDumpArgs              :: Bool    -- ^ Output command-line arguments
     , optIgnoreArgs            :: Bool    -- ^ Ignore command-line arguments
@@ -118,13 +146,14 @@ data Opt = Opt
     , optFailIfWarnings        :: Bool    -- ^ Fail on warnings
     , optReferenceLinks        :: Bool    -- ^ Use reference links in writing markdown, rst
     , optReferenceLocation     :: ReferenceLocation -- ^ location for footnotes and link references in markdown output
+    , optFigureCaptionPosition :: CaptionPosition -- ^ position for figure caption
+    , optTableCaptionPosition  :: CaptionPosition -- ^ position for table caption
     , optDpi                   :: Int     -- ^ Dpi
     , optWrap                  :: WrapOption  -- ^ Options for wrapping text
     , optColumns               :: Int     -- ^ Line length in characters
     , optFilters               :: [Filter] -- ^ Filters to apply
     , optEmailObfuscation      :: ObfuscationMethod
     , optIdentifierPrefix      :: Text
-    , optStripEmptyParagraphs  :: Bool -- ^ Strip empty paragraphs
     , optIndentedCodeClasses   :: [Text] -- ^ Default classes for indented code blocks
     , optDataDir               :: Maybe FilePath
     , optCiteMethod            :: CiteMethod -- ^ Method to output cites
@@ -133,6 +162,7 @@ data Opt = Opt
     , optPdfEngineOpts         :: [String]   -- ^ Flags to pass to the engine
     , optSlideLevel            :: Maybe Int  -- ^ Header level that creates slides
     , optSetextHeaders         :: Bool       -- ^ Use atx headers for markdown level 1-2
+    , optListTables            :: Bool       -- ^ Use list tables for RST
     , optAscii                 :: Bool       -- ^ Prefer ascii output
     , optDefaultImageExtension :: Text       -- ^ Default image extension
     , optExtractMedia          :: Maybe FilePath -- ^ Path to extract embedded media
@@ -155,8 +185,98 @@ data Opt = Opt
     , optSandbox               :: Bool
     } deriving (Generic, Show)
 
-$(deriveJSON
-   defaultOptions{ fieldLabelModifier = camelTo2 '-' . drop 3 } ''Opt)
+instance FromJSON Opt where
+   parseJSON = withObject "Opt" $ \o ->
+     Opt
+       <$> o .:? "tab-stop" .!= optTabStop defaultOpts
+       <*> o .:? "preserve-tabs" .!= optPreserveTabs defaultOpts
+       <*> o .:? "standalone" .!= optStandalone defaultOpts
+       <*> o .:? "from"
+       <*> o .:? "to"
+       <*> o .:? "table-of-contents" .!= optTableOfContents defaultOpts
+       <*> o .:? "list-of-figures" .!= optListOfFigures defaultOpts
+       <*> o .:? "list-of-tables" .!= optListOfTables defaultOpts
+       <*> o .:? "shift-heading-level-by" .!= optShiftHeadingLevelBy defaultOpts
+       <*> o .:? "template"
+       <*> o .:? "variables" .!= optVariables defaultOpts
+       <*> o .:? "metadata" .!= optMetadata defaultOpts
+       <*> o .:? "metadata-files" .!= optMetadataFiles defaultOpts
+       <*> o .:? "output-file"
+       <*> o .:? "input-files"
+       <*> o .:? "number-sections" .!= optNumberSections defaultOpts
+       <*> o .:? "number-offset" .!= optNumberOffset defaultOpts
+       <*> o .:? "section-divs" .!= optSectionDivs defaultOpts
+       <*> o .:? "incremental" .!= optIncremental defaultOpts
+       <*> o .:? "self-contained" .!= optSelfContained defaultOpts
+       <*> o .:? "embed-resources" .!= optEmbedResources defaultOpts
+       <*> o .:? "link-images" .!= optLinkImages defaultOpts
+       <*> o .:? "html-q-tags" .!= optHtmlQTags defaultOpts
+       <*> o .:? "highlight-style"
+       <*> o .:? "syntax-definitions" .!= optSyntaxDefinitions defaultOpts
+       <*> o .:? "top-level-division" .!= optTopLevelDivision defaultOpts
+       <*> o .:? "html-math-method" .!= optHTMLMathMethod defaultOpts
+       <*> o .:? "abbreviations"
+       <*> o .:? "reference-doc"
+       <*> ((o .:? "split-level") <|> (o .:? "epub-chapter-level"))
+             .!= optSplitLevel defaultOpts
+       <*> o .:? "chunk-template"
+       <*> o .:? "epub-subdirectory" .!= optEpubSubdirectory defaultOpts
+       <*> o .:? "epub-metadata"
+       <*> o .:? "epub-fonts" .!= optEpubFonts defaultOpts
+       <*> o .:? "epub-cover-image"
+       <*> o .:? "epub-title-page" .!= optEpubTitlePage defaultOpts
+       <*> o .:? "toc-depth" .!= optTOCDepth defaultOpts
+       <*> o .:? "dump-args" .!= optDumpArgs defaultOpts
+       <*> o .:? "ignore-args" .!= optIgnoreArgs defaultOpts
+       <*> o .:? "verbosity" .!= optVerbosity defaultOpts
+       <*> o .:? "trace" .!= optTrace defaultOpts
+       <*> o .:? "log-file"
+       <*> o .:? "fail-if-warnings" .!= optFailIfWarnings defaultOpts
+       <*> o .:? "reference-links" .!= optReferenceLinks defaultOpts
+       <*> o .:? "reference-location" .!= optReferenceLocation defaultOpts
+       <*> o .:? "figure-caption-position" .!= optFigureCaptionPosition defaultOpts
+       <*> o .:? "table-caption-position" .!= optTableCaptionPosition defaultOpts
+       <*> o .:? "dpi" .!= optDpi defaultOpts
+       <*> o .:? "wrap" .!= optWrap defaultOpts
+       <*> o .:? "columns" .!= optColumns defaultOpts
+       <*> o .:? "filters" .!= optFilters defaultOpts
+       <*> o .:? "email-obfuscation" .!= optEmailObfuscation defaultOpts
+       <*> o .:? "identifier-prefix" .!= optIdentifierPrefix defaultOpts
+       <*> o .:? "indented-code-classes" .!= optIndentedCodeClasses defaultOpts
+       <*> o .:? "data-dir"
+       <*> o .:? "cite-method" .!= optCiteMethod defaultOpts
+       <*> o .:? "listings" .!= optListings defaultOpts
+       <*> o .:? "pdf-engine"
+       <*> o .:? "pdf-engine-opts" .!= optPdfEngineOpts defaultOpts
+       <*> o .:? "slide-level"
+       <*> o .:? "setext-headers" .!= optSetextHeaders defaultOpts
+       <*> o .:? "list-tables" .!= optListTables defaultOpts
+       <*> o .:? "ascii" .!= optAscii defaultOpts
+       <*> o .:? "default-image-extension" .!= optDefaultImageExtension defaultOpts
+       <*> o .:? "extract-media"
+       <*> o .:? "track-changes" .!= optTrackChanges defaultOpts
+       <*> o .:? "file-scope" .!= optFileScope defaultOpts
+       <*> o .:? "title-prefix" .!= optTitlePrefix defaultOpts
+       <*> o .:? "css" .!= optCss defaultOpts
+       <*> o .:? "ipynb-output" .!= optIpynbOutput defaultOpts
+       <*> o .:? "include-before-body" .!= optIncludeBeforeBody defaultOpts
+       <*> o .:? "include-after-body" .!= optIncludeAfterBody defaultOpts
+       <*> o .:? "include-in-header" .!= optIncludeInHeader defaultOpts
+       <*> o .:? "resource-path" .!= optResourcePath defaultOpts
+       <*> o .:? "request-headers" .!= optRequestHeaders defaultOpts
+       <*> o .:? "no-check-certificate" .!= optNoCheckCertificate defaultOpts
+       <*> o .:? "eol" .!= optEol defaultOpts
+       <*> o .:? "strip-comments" .!= optStripComments defaultOpts
+       <*> o .:? "csl"
+       <*> o .:? "bibliography" .!= optBibliography defaultOpts
+       <*> o .:? "citation-abbreviations"
+       <*> o .:? "sandbox" .!= optSandbox defaultOpts
+
+instance ToJSON Opt where
+ toJSON = genericToJSON defaultOptions{
+                                 fieldLabelModifier = camelTo2 '-' . drop 3,
+                                 omitNothingFields = True }
+
 
 instance FromJSON (Opt -> Opt) where
   parseJSON (Object m) =
@@ -192,7 +312,9 @@ resolveVarsInOpt :: forall m. (PandocMonad m, MonadIO m)
                  => Opt -> StateT DefaultsState m Opt
 resolveVarsInOpt
     opt@Opt
-    { optTemplate              = oTemplate
+    { optTo                    = oTo
+    , optFrom                  = oFrom
+    , optTemplate              = oTemplate
     , optMetadataFiles         = oMetadataFiles
     , optOutputFile            = oOutputFile
     , optInputFiles            = oInputFiles
@@ -214,8 +336,12 @@ resolveVarsInOpt
     , optCSL                   = oCSL
     , optBibliography          = oBibliography
     , optCitationAbbreviations = oCitationAbbreviations
+    , optPdfEngine             = oPdfEngine
+    , optHighlightStyle        = oHighlightStyle
     }
   = do
+      oTo' <- mapM (fmap T.pack . resolveVars . T.unpack) oTo
+      oFrom' <- mapM (fmap T.pack . resolveVars . T.unpack) oFrom
       oTemplate' <- mapM resolveVars oTemplate
       oMetadataFiles' <- mapM resolveVars oMetadataFiles
       oOutputFile' <- mapM resolveVars oOutputFile
@@ -238,7 +364,11 @@ resolveVarsInOpt
       oCSL' <- mapM resolveVars oCSL
       oBibliography' <- mapM resolveVars oBibliography
       oCitationAbbreviations' <- mapM resolveVars oCitationAbbreviations
-      return opt{ optTemplate              = oTemplate'
+      oPdfEngine' <- mapM resolveVars oPdfEngine
+      oHighlightStyle' <- mapM (fmap T.pack . resolveVars . T.unpack) oHighlightStyle
+      return opt{ optTo                    = oTo'
+                , optFrom                  = oFrom'
+                , optTemplate              = oTemplate'
                 , optMetadataFiles         = oMetadataFiles'
                 , optOutputFile            = oOutputFile'
                 , optInputFiles            = oInputFiles'
@@ -260,6 +390,8 @@ resolveVarsInOpt
                 , optCSL                   = oCSL'
                 , optBibliography          = oBibliography'
                 , optCitationAbbreviations = oCitationAbbreviations'
+                , optPdfEngine             = oPdfEngine'
+                , optHighlightStyle        = oHighlightStyle'
                 }
 
  where
@@ -352,6 +484,14 @@ doOpt (k,v) = do
       parseJSON v >>= \x -> return (\o -> o{ optTableOfContents = x })
     "toc" ->
       parseJSON v >>= \x -> return (\o -> o{ optTableOfContents = x })
+    "list-of-figures" ->
+      parseJSON v >>= \x -> return (\o -> o{ optListOfFigures = x })
+    "lof" ->
+      parseJSON v >>= \x -> return (\o -> o{ optListOfFigures = x })
+    "list-of-tables" ->
+      parseJSON v >>= \x -> return (\o -> o{ optListOfTables = x })
+    "lot" ->
+      parseJSON v >>= \x -> return (\o -> o{ optListOfTables = x })
     "from" ->
       parseJSON v >>= \x -> return (\o -> o{ optFrom = x })
     "reader" ->
@@ -409,6 +549,10 @@ doOpt (k,v) = do
       parseJSON v >>= \x -> return (\o -> o{ optIncremental = x })
     "self-contained" ->
       parseJSON v >>= \x -> return (\o -> o{ optSelfContained = x })
+    "embed-resources" ->
+      parseJSON v >>= \x -> return (\o -> o{ optEmbedResources = x })
+    "link-images" ->
+      parseJSON v >>= \x -> return (\o -> o{ optLinkImages = x })
     "html-q-tags" ->
       parseJSON v >>= \x -> return (\o -> o{ optHtmlQTags = x })
     "highlight-style" ->
@@ -445,10 +589,16 @@ doOpt (k,v) = do
       parseJSON v >>= \x -> return (\o -> o{ optEpubFonts = optEpubFonts o <>
                                                map unpack x })
     "epub-chapter-level" ->
-      parseJSON v >>= \x -> return (\o -> o{ optEpubChapterLevel = x })
+      parseJSON v >>= \x -> return (\o -> o{ optSplitLevel = x })
+    "split-level" ->
+      parseJSON v >>= \x -> return (\o -> o{ optSplitLevel = x })
+    "chunk-template" ->
+      parseJSON v >>= \x -> return (\o -> o{ optChunkTemplate = Just x })
     "epub-cover-image" ->
       parseJSON v >>= \x ->
              return (\o -> o{ optEpubCoverImage = unpack <$> x })
+    "epub-title-page" ->
+      parseJSON v >>= \x -> return (\o -> o{ optEpubTitlePage = x })
     "toc-depth" ->
       parseJSON v >>= \x -> return (\o -> o{ optTOCDepth = x })
     "dump-args" ->
@@ -467,6 +617,10 @@ doOpt (k,v) = do
       parseJSON v >>= \x -> return (\o -> o{ optReferenceLinks = x })
     "reference-location" ->
       parseJSON v >>= \x -> return (\o -> o{ optReferenceLocation = x })
+    "figure-caption-position" ->
+      parseJSON v >>= \x -> return (\o -> o{ optFigureCaptionPosition = x })
+    "table-caption-position" ->
+      parseJSON v >>= \x -> return (\o -> o{ optTableCaptionPosition = x })
     "dpi" ->
       parseJSON v >>= \x -> return (\o -> o{ optDpi = x })
     "wrap" ->
@@ -485,8 +639,6 @@ doOpt (k,v) = do
     "identifier-prefix" ->
       parseJSON v >>= \x ->
              return (\o -> o{ optIdentifierPrefix = x })
-    "strip-empty-paragraphs" ->
-      parseJSON v >>= \x -> return (\o -> o{ optStripEmptyParagraphs = x })
     "indented-code-classes" ->
       parseJSON v >>= \x ->
              return (\o -> o{ optIndentedCodeClasses = x })
@@ -509,14 +661,14 @@ doOpt (k,v) = do
              return (\o -> o{ optPdfEngineOpts = [unpack x] }))
     "slide-level" ->
       parseJSON v >>= \x -> return (\o -> o{ optSlideLevel = x })
-    "atx-headers" ->
-      parseJSON v >>= \x -> return (\o -> o{ optSetextHeaders = not x })
     "markdown-headings" ->
       parseJSON v >>= \x -> return (\o ->
         case T.toLower x of
           "atx"    -> o{ optSetextHeaders = False }
           "setext" -> o{ optSetextHeaders = True }
           _        -> o)
+    "list-tables" ->
+      parseJSON v >>= \x -> return (\o -> o{ optListTables = x })
     "ascii" ->
       parseJSON v >>= \x -> return (\o -> o{ optAscii = x })
     "default-image-extension" ->
@@ -604,6 +756,8 @@ defaultOpts = Opt
     , optFrom                  = Nothing
     , optTo                    = Nothing
     , optTableOfContents       = False
+    , optListOfFigures         = False
+    , optListOfTables          = False
     , optShiftHeadingLevelBy   = 0
     , optTemplate              = Nothing
     , optVariables             = mempty
@@ -612,10 +766,12 @@ defaultOpts = Opt
     , optOutputFile            = Nothing
     , optInputFiles            = Nothing
     , optNumberSections        = False
-    , optNumberOffset          = [0,0,0,0,0,0]
+    , optNumberOffset          = []
     , optSectionDivs           = False
     , optIncremental           = False
     , optSelfContained         = False
+    , optEmbedResources        = False
+    , optLinkImages            = False
     , optHtmlQTags             = False
     , optHighlightStyle        = Just "pygments"
     , optSyntaxDefinitions     = []
@@ -623,11 +779,13 @@ defaultOpts = Opt
     , optHTMLMathMethod        = PlainMath
     , optAbbreviations         = Nothing
     , optReferenceDoc          = Nothing
+    , optSplitLevel            = 1
+    , optChunkTemplate         = Nothing
     , optEpubSubdirectory      = "EPUB"
     , optEpubMetadata          = Nothing
     , optEpubFonts             = []
-    , optEpubChapterLevel      = 1
     , optEpubCoverImage        = Nothing
+    , optEpubTitlePage         = True
     , optTOCDepth              = 3
     , optDumpArgs              = False
     , optIgnoreArgs            = False
@@ -637,13 +795,14 @@ defaultOpts = Opt
     , optFailIfWarnings        = False
     , optReferenceLinks        = False
     , optReferenceLocation     = EndOfDocument
+    , optFigureCaptionPosition = CaptionBelow
+    , optTableCaptionPosition  = CaptionAbove
     , optDpi                   = 96
     , optWrap                  = WrapAuto
     , optColumns               = 72
     , optFilters               = []
     , optEmailObfuscation      = NoObfuscation
     , optIdentifierPrefix      = ""
-    , optStripEmptyParagraphs  = False
     , optIndentedCodeClasses   = []
     , optDataDir               = Nothing
     , optCiteMethod            = Citeproc
@@ -652,6 +811,7 @@ defaultOpts = Opt
     , optPdfEngineOpts         = []
     , optSlideLevel            = Nothing
     , optSetextHeaders         = False
+    , optListTables            = False
     , optAscii                 = False
     , optDefaultImageExtension = ""
     , optExtractMedia          = Nothing
@@ -709,7 +869,14 @@ fullDefaultsPath dataDir file = do
               else file
   defaultDataDir <- liftIO defaultUserDataDir
   let defaultFp = fromMaybe defaultDataDir dataDir </> "defaults" </> fp
-  fromMaybe fp <$> findM fileExists [fp, defaultFp]
+  fpExists <- fileExists fp
+  if fpExists
+     then return fp
+     else do
+       defaultFpExists <- fileExists defaultFp
+       if defaultFpExists
+          then return defaultFp
+          else return fp
 
 -- | In a list of lists, append another list in front of every list which
 -- starts with specific element.
@@ -724,4 +891,4 @@ expand ps ns n = concatMap (ext n ns) ps
 cyclic :: Ord a => [[a]] -> Bool
 cyclic = any hasDuplicate
   where
-    hasDuplicate xs = length (ordNub xs) /= length xs
+    hasDuplicate xs = length (nubOrd xs) /= length xs

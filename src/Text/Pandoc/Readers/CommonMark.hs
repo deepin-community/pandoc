@@ -3,7 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
    Module      : Text.Pandoc.Readers.CommonMark
-   Copyright   : Copyright (C) 2015-2022 John MacFarlane
+   Copyright   : Copyright (C) 2015-2024 John MacFarlane
    License     : GNU GPL, version 2 or above
 
    Maintainer  : John MacFarlane <jgm@berkeley.edu>
@@ -25,16 +25,19 @@ import Text.Pandoc.Class.PandocMonad (PandocMonad)
 import Text.Pandoc.Definition
 import Text.Pandoc.Builder as B
 import Text.Pandoc.Options
-import Text.Pandoc.Error
 import Text.Pandoc.Readers.Metadata (yamlMetaBlock)
-import Control.Monad.Except
+import Control.Monad (MonadPlus(mzero))
+import Control.Monad.Except (  MonadError(throwError) )
 import Data.Functor.Identity (runIdentity)
 import Data.Typeable
 import Text.Pandoc.Parsing (runParserT, getInput, getPosition,
                             runF, defaultParserState, option, many1, anyChar,
-                            Sources(..), ToSources(..), ParserT, Future,
-                            sourceName, sourceLine, incSourceLine)
+                            Sources(..), ToSources(..), ParsecT, Future,
+                            incSourceLine, fromParsecError)
+import Text.Pandoc.Walk (walk)
 import qualified Data.Text as T
+import qualified Data.Attoparsec.Text as A
+import Control.Applicative ((<|>))
 
 -- | Parse a CommonMark formatted string into a 'Pandoc' structure.
 readCommonMark :: (PandocMonad m, ToSources a)
@@ -67,6 +70,14 @@ readCommonMark opts s
     let toks = concatMap sourceToToks (unSources sources)
     readCommonMarkBody opts sources toks
 
+makeFigures :: Block -> Block
+makeFigures (Para [Image (ident,classes,kvs) alt (src,tit)])
+  | not (null alt) =
+  Figure (ident,[],[])
+    (Caption Nothing [Plain alt])
+    [Plain [Image ("",classes,kvs) alt (src,tit)]]
+makeFigures b = b
+
 sourceToToks :: (SourcePos, Text) -> [Tok]
 sourceToToks (pos, s) = map adjust $ tokenize (sourceName pos) s
  where
@@ -77,7 +88,7 @@ sourceToToks (pos, s) = map adjust $ tokenize (sourceName pos) s
 
 
 metaValueParser :: Monad m
-                => ReaderOptions -> ParserT Sources st m (Future st MetaValue)
+                => ReaderOptions -> ParsecT Sources st m (Future st MetaValue)
 metaValueParser opts = do
   inp <- option "" $ T.pack <$> many1 anyChar
   let toks = concatMap sourceToToks (unSources (toSources inp))
@@ -86,15 +97,62 @@ metaValueParser opts = do
      Right (Cm bls :: Cm () Blocks) -> return $ return $ B.toMetaValue bls
 
 readCommonMarkBody :: PandocMonad m => ReaderOptions -> Sources -> [Tok] -> m Pandoc
-readCommonMarkBody opts s toks
-  | isEnabled Ext_sourcepos opts =
-    case runIdentity (parseCommonmarkWith (specFor opts) toks) of
-      Left err -> throwError $ PandocParsecError s err
-      Right (Cm bls :: Cm SourceRange Blocks) -> return $ B.doc bls
-  | otherwise =
-    case runIdentity (parseCommonmarkWith (specFor opts) toks) of
-      Left err -> throwError $ PandocParsecError s err
-      Right (Cm bls :: Cm () Blocks) -> return $ B.doc bls
+readCommonMarkBody opts s toks =
+  (if isEnabled Ext_implicit_figures opts
+      then walk makeFigures
+      else id) .
+  (if isEnabled Ext_tex_math_gfm opts
+      then walk handleGfmMath
+      else id) .
+  (if readerStripComments opts
+      then walk stripBlockComments . walk stripInlineComments
+      else id) <$>
+  if isEnabled Ext_sourcepos opts
+     then case runIdentity (parseCommonmarkWith (specFor opts) toks) of
+            Left err -> throwError $ fromParsecError s err
+            Right (Cm bls :: Cm SourceRange Blocks) -> return $ B.doc bls
+     else case runIdentity (parseCommonmarkWith (specFor opts) toks) of
+            Left err -> throwError $ fromParsecError s err
+            Right (Cm bls :: Cm () Blocks) -> return $ B.doc bls
+
+handleGfmMath :: Block -> Block
+handleGfmMath (CodeBlock ("",["math"],[]) raw) = Para [Math DisplayMath raw]
+handleGfmMath x = walk handleGfmMathInline x
+
+handleGfmMathInline :: Inline -> Inline
+handleGfmMathInline (Math InlineMath math') =
+  let (ticks, rest) = T.span (== '`') math'
+  in  if T.null ticks
+         then Math InlineMath math'
+         else case T.stripSuffix ticks rest of
+                Just middle | not (T.null middle) && (T.last middle /= '`')
+                             -> Math InlineMath middle
+                _ -> Math InlineMath math'
+handleGfmMathInline x = x
+
+stripBlockComments :: Block -> Block
+stripBlockComments (RawBlock (B.Format "html") s) =
+  RawBlock (B.Format "html") (removeComments s)
+stripBlockComments x = x
+
+stripInlineComments :: Inline -> Inline
+stripInlineComments (RawInline (B.Format "html") s) =
+  RawInline (B.Format "html") (removeComments s)
+stripInlineComments x = x
+
+removeComments :: Text -> Text
+removeComments s =
+  either (const s) id $ A.parseOnly pRemoveComments s
+ where
+  pRemoveComments = mconcat <$> A.many'
+    ("" <$ (A.string "<!--" *> A.scan (0 :: Int) scanChar <* A.char '>') <|>
+     (A.takeWhile1 (/= '<')) <|>
+     (A.string "<"))
+  scanChar st c =
+    case c of
+      '-' -> Just (st + 1)
+      '>' | st >= 2 -> Nothing
+      _ -> Just 0
 
 specFor :: (Monad m, Typeable m, Typeable a,
             Rangeable (Cm a Inlines), Rangeable (Cm a Blocks))
@@ -112,6 +170,7 @@ specFor opts = foldr ($) defaultSyntaxSpec exts
          [ (bracketedSpanSpec <>) | isEnabled Ext_bracketed_spans opts ] ++
          [ (rawAttributeSpec <>) | isEnabled Ext_raw_attribute opts ] ++
          [ (attributesSpec <>) | isEnabled Ext_attributes opts ] ++
+         [ (alertSpec <>) | isEnabled Ext_alerts opts ] ++
          [ (<> pipeTableSpec) | isEnabled Ext_pipe_tables opts ] ++
             -- see #6739
          [ (autolinkSpec <>) | isEnabled Ext_autolink_bare_uris opts ] ++
@@ -127,6 +186,9 @@ specFor opts = foldr ($) defaultSyntaxSpec exts
          [ (footnoteSpec <>) | isEnabled Ext_footnotes opts ] ++
          [ (definitionListSpec <>) | isEnabled Ext_definition_lists opts ] ++
          [ (taskListSpec <>) | isEnabled Ext_task_lists opts ] ++
+         [ (wikilinksSpec TitleAfterPipe <>)
+           | isEnabled Ext_wikilinks_title_after_pipe opts ] ++
+         [ (wikilinksSpec TitleBeforePipe <>)
+           | isEnabled Ext_wikilinks_title_before_pipe opts ] ++
          [ (rebaseRelativePathsSpec <>)
            | isEnabled Ext_rebase_relative_paths opts ]
-

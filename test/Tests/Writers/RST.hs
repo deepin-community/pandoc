@@ -12,7 +12,7 @@ import Text.Pandoc.Writers.RST
 import qualified Data.Text as T
 
 infix 4 =:
-(=:) :: (ToString a, ToPandoc a)
+(=:) :: (ToString a, ToPandoc a, HasCallStack)
      => String -> (a, String) -> TestTree
 (=:) = test (purely (writeRST def . toPandoc))
 
@@ -32,7 +32,7 @@ tests :: [TestTree]
 tests = [ testGroup "rubrics"
           [ "in list item" =:
               bulletList [header 2 (text "foo")] =?>
-              "-  .. rubric:: foo"
+              "- .. rubric:: foo"
           , "in definition list item" =:
               definitionList [(text "foo", [header 2 (text "bar"),
                                             para $ text "baz"])] =?>
@@ -60,7 +60,7 @@ tests = [ testGroup "rubrics"
           [ "a list is closed by a comment before a quote" =: -- issue 4248
             bulletList [plain "bulleted"] <> blockQuote (plain "quoted") =?>
               unlines
-              [ "-  bulleted"
+              [ "- bulleted"
               , ""
               , ".."
               , ""
@@ -98,8 +98,8 @@ tests = [ testGroup "rubrics"
             strong (emph (link "loc" "" (str "text"))) =?>
             "`text <loc>`__"
           , "RST inlines cannot start nor end with spaces" =:
-            emph (str "f" <> space <> strong (str "d") <> space <> str "l") =?>
-            "*f*\\ **d**\\ *l*"
+            emph (str "f" <> strong (space <> str "d" <> space) <> str "l") =?>
+            "*f* **d** *l*"
           , "keeps quotes" =:
             strong (str "f" <> doubleQuoted (str "d") <> str "l") =?>
             "**f“d”l**"

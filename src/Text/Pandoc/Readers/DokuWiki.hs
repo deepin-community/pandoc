@@ -19,17 +19,18 @@ import Control.Monad
 import Control.Monad.Except (throwError)
 import Data.Char (isAlphaNum, isDigit)
 import qualified Data.Foldable as F
-import Data.List (transpose)
 import Data.Maybe (fromMaybe, catMaybes)
+import Data.Bifunctor (second)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Class.PandocMonad (PandocMonad (..))
 import Text.Pandoc.Definition
-import Text.Pandoc.Error (PandocError (PandocParsecError))
 import Text.Pandoc.Options
-import Text.Pandoc.Parsing hiding (enclosed, nested)
+import Text.Pandoc.Parsing hiding (enclosed)
 import Text.Pandoc.Shared (trim, stringify, tshow)
+import Data.List (isPrefixOf, isSuffixOf, groupBy)
+import qualified Safe
 
 -- | Read DokuWiki from an input string and return a Pandoc document.
 readDokuWiki :: (PandocMonad m, ToSources a)
@@ -41,25 +42,16 @@ readDokuWiki opts s = do
   res <- runParserT parseDokuWiki def {stateOptions = opts }
            (initialSourceName sources) sources
   case res of
-       Left e  -> throwError $ PandocParsecError sources e
+       Left e  -> throwError $ fromParsecError sources e
        Right d -> return d
 
-type DWParser = ParserT Sources ParserState
+type DWParser = ParsecT Sources ParserState
 
 -- * Utility functions
 
 -- | Parse end-of-line, which can be either a newline or end-of-file.
-eol :: (Stream s m Char, UpdateSourcePos s Char) => ParserT s st m ()
+eol :: (Stream s m Char, UpdateSourcePos s Char) => ParsecT s st m ()
 eol = void newline <|> eof
-
-nested :: PandocMonad m => DWParser m a -> DWParser m a
-nested p = do
-  nestlevel <- stateMaxNestingLevel <$>  getState
-  guard $ nestlevel > 0
-  updateState $ \st -> st{ stateMaxNestingLevel = stateMaxNestingLevel st - 1 }
-  res <- p
-  updateState $ \st -> st{ stateMaxNestingLevel = nestlevel }
-  return res
 
 guardColumnOne :: PandocMonad m => DWParser m ()
 guardColumnOne = getPosition >>= \pos -> guard (sourceColumn pos == 1)
@@ -96,7 +88,11 @@ codeTag f tag = try $ f
 -- | Parse any inline element but softbreak.
 inline' :: PandocMonad m => DWParser m B.Inlines
 inline' = whitespace
-      <|> br
+      <|> inline''
+
+-- | Parse any inline element but whitespace.
+inline'' :: PandocMonad m => DWParser m B.Inlines
+inline'' = br
       <|> bold
       <|> italic
       <|> underlined
@@ -109,17 +105,20 @@ inline' = whitespace
       <|> superscript
       <|> deleted
       <|> footnote
-      <|> inlineCode
-      <|> inlineFile
-      <|> inlineHtml
-      <|> inlinePhp
+      <|> inlineRaw
+      <|> math
       <|> autoLink
       <|> autoEmail
       <|> notoc
       <|> nocache
+      <|> smartPunctuation inline
       <|> str
       <|> symbol
       <?> "inline"
+
+-- | Parse any inline element but soft breaks and do not consolidate spaces.
+inlineUnconsolidatedWhitespace :: PandocMonad m => DWParser m B.Inlines
+inlineUnconsolidatedWhitespace = (B.space <$ spaceChar) <|> inline'
 
 -- | Parse any inline element, including soft break.
 inline :: PandocMonad m => DWParser m B.Inlines
@@ -154,7 +153,7 @@ nestedInlines :: (Show a, PandocMonad m)
 nestedInlines end = innerSpace <|> nestedInline
   where
     innerSpace   = try $ whitespace <* notFollowedBy end
-    nestedInline = notFollowedBy whitespace >> nested inline
+    nestedInline = notFollowedBy whitespace >> inline
 
 bold :: PandocMonad m => DWParser m B.Inlines
 bold = try $ B.strong <$> enclosed (string "**") nestedInlines
@@ -193,17 +192,22 @@ deleted = try $ B.strikeout <$> between (string "<del>") (try $ string "</del>")
 footnote :: PandocMonad m => DWParser m B.Inlines
 footnote = try $ B.note . B.para <$> between (string "((") (try $ string "))") nestedInlines
 
-inlineCode :: PandocMonad m => DWParser m B.Inlines
-inlineCode = codeTag B.codeWith "code"
+inlineRaw :: PandocMonad m => DWParser m B.Inlines
+inlineRaw = try $ do
+  char '<'
+  fmt <- oneOfStrings ["html", "php", "latex"]
+  -- LaTeX via https://www.dokuwiki.org/plugin:latex
+  char '>'
+  contents <- manyTillChar anyChar
+                (try $ string "</" *> string (T.unpack fmt) *> char '>')
+  return $
+    case T.toLower fmt of
+         "php" -> B.rawInline "html" $ "<?php " <> contents <> " ?>"
+         f -> B.rawInline f contents
 
-inlineFile :: PandocMonad m => DWParser m B.Inlines
-inlineFile = codeTag B.codeWith "file"
-
-inlineHtml :: PandocMonad m => DWParser m B.Inlines
-inlineHtml = try $ B.rawInline "html" <$ string "<html>" <*> manyTillChar anyChar (try $ string "</html>")
-
-inlinePhp :: PandocMonad m => DWParser m B.Inlines
-inlinePhp = try $ B.codeWith ("", ["php"], []) <$ string "<php>" <*> manyTillChar anyChar (try $ string "</php>")
+-- see https://www.dokuwiki.org/plugin:latex
+math :: PandocMonad m => DWParser m B.Inlines
+math = (B.displayMath <$> mathDisplay) <|> (B.math <$> mathInline)
 
 makeLink :: (Text, Text) -> B.Inlines
 makeLink (text, url) = B.link url "" $ B.str text
@@ -219,6 +223,7 @@ autoLink = try $ do
   state <- getState
   guard $ stateAllowLinks state
   (text, url) <- uri
+  guard $ not $ T.isInfixOf "%%//%%" text  -- see #9153
   guard $ checkLink (T.last url)
   return $ makeLink (text, url)
   where
@@ -233,10 +238,10 @@ nocache :: PandocMonad m => DWParser m B.Inlines
 nocache = try $ mempty <$ string "~~NOCACHE~~"
 
 str :: PandocMonad m => DWParser m B.Inlines
-str = B.str <$> (many1Char alphaNum <|> countChar 1 characterReference)
+str = B.str <$> (many1Char alphaNum <|> characterReference)
 
 symbol :: PandocMonad m => DWParser m B.Inlines
-symbol = B.str <$> countChar 1 nonspaceChar
+symbol = B.str <$> (notFollowedBy' blockCode *> countChar 1 nonspaceChar)
 
 link :: PandocMonad m => DWParser m B.Inlines
 link = try $ do
@@ -296,8 +301,11 @@ parseLink :: PandocMonad m
 parseLink f l r = f
   <$  textStr l
   <*> many1TillChar anyChar (lookAhead (void (char '|') <|> try (void $ textStr r)))
-  <*> optionMaybe (B.trimInlines . mconcat <$> (char '|' *> manyTill inline (try $ lookAhead $ textStr r)))
-  <*  textStr r
+  <*> ( (char '|' *> optionMaybe (B.trimInlines . B.text . T.pack <$>
+                       many1Till anyChar (lookAhead (try (textStr r)))))
+       <|> pure Nothing
+      )
+  <* textStr r
 
 -- | Split Interwiki link into left and right part
 -- | Return Nothing if it is not Interwiki link
@@ -378,7 +386,11 @@ image = try $ parseLink fromRaw "{{" "}}"
         parameterList = T.splitOn "&" $ T.drop 1 parameters
         linkOnly = "linkonly" `elem` parameterList
         (width, height) = maybe (Nothing, Nothing) parseWidthHeight (F.find isWidthHeightParameter parameterList)
-        attributes = catMaybes [fmap ("width",) width, fmap ("height",) height]
+        attributes = catMaybes [
+                fmap ("width",) width,
+                fmap ("height",) height,
+                fmap ("query",) (if T.null parameters then Nothing else Just parameters)
+            ]
         defaultDescription = B.str $ urlToText path'
 
 -- * Block parsers
@@ -399,9 +411,7 @@ blockElements = horizontalLine
             <|> indentedCode
             <|> quote
             <|> blockCode
-            <|> blockFile
-            <|> blockHtml
-            <|> blockPhp
+            <|> blockRaw
             <|> table
 
 horizontalLine :: PandocMonad m => DWParser m B.Blocks
@@ -434,56 +444,90 @@ parseList prefix marker =
   many1 ((<>) <$> item <*> fmap mconcat (many continuation))
   where
     continuation = try $ list ("  " <> prefix)
-    item = try $ textStr prefix *> char marker *> char ' ' *> itemContents
-    itemContents = B.plain . mconcat <$> many1Till inline' eol
+    item = try $ textStr prefix *>
+                   optional (char ' ') *>  -- see #8863
+                   char marker *> char ' ' *>
+                   (mconcat <$> many1 itemContents <* eol)
+    itemContents = (B.plain . mconcat <$> many1 inline') <|>
+                   blockCode
 
 indentedCode :: PandocMonad m => DWParser m B.Blocks
 indentedCode = try $ B.codeBlock . T.unlines <$> many1 indentedLine
  where
    indentedLine = try $ string "  " *> manyTillChar anyChar eol
 
+-- Note that block quotes in dokuwiki parse as lists of hard-break
+-- separated lines; see #6461.
 quote :: PandocMonad m => DWParser m B.Blocks
-quote = try $ nestedQuote 0
-  where
-    prefix level = count level (char '>')
-    contents level = nestedQuote level <|> quoteLine
-    quoteLine = try $ B.plain . B.trimInlines . mconcat <$> many1Till inline' eol
-    quoteContents level = (<>) <$> contents level <*> quoteContinuation level
-    quoteContinuation level = mconcat <$> many (try $ prefix level *> contents level)
-    nestedQuote level = B.blockQuote <$ char '>' <*> quoteContents (level + 1 :: Int)
+quote = go <$> many1 blockQuoteLine
+ where
+   blockQuoteLine = try $ do
+     lev <- length <$> many1 (char '>')
+     skipMany spaceChar
+     contents <- (blockCode <* skipMany spaceChar <* optional eol) <|>
+       (B.plain . B.trimInlines . mconcat <$> many1Till inline' eol)
+     pure (lev, contents)
+   go [] = mempty
+   go xs = mconcat $ map go' (groupBy (\(x,_) (y,_) -> (x == 0 && y == 0) ||
+                                                        (x > 0 && y > 0)) xs)
+   go' [] = mempty
+   go' xs@((0,_):_) =
+        let (lns, bls) = F.foldl' consolidatePlains (mempty,mempty) (map snd xs)
+         in bls <> if lns == mempty
+                      then mempty
+                      else B.plain lns
+   go' xs = B.blockQuote (go $ map (\(x,y) -> (x - 1, y)) xs)
+   consolidatePlains (lns, bls) b =
+     case B.toList b of
+       [Plain ils] -> ((if lns == mempty
+                           then B.fromList ils
+                           else lns <> B.linebreak <> B.fromList ils), bls)
+       _ -> (mempty, bls <>
+                     (if lns == lns
+                         then mempty
+                         else B.plain lns)
+                      <> b)
 
-blockHtml :: PandocMonad m => DWParser m B.Blocks
-blockHtml = try $ B.rawBlock "html"
-  <$  string "<HTML>"
-  <*  optional (manyTill spaceChar eol)
-  <*> manyTillChar anyChar (try $ string "</HTML>")
-
-blockPhp :: PandocMonad m => DWParser m B.Blocks
-blockPhp = try $ B.codeBlockWith ("", ["php"], [])
-  <$  string "<PHP>"
-  <*  optional (manyTill spaceChar eol)
-  <*> manyTillChar anyChar (try $ string "</PHP>")
+blockRaw :: PandocMonad m => DWParser m B.Blocks
+blockRaw = try $ do
+  char '<'
+  fmt <- oneOfStrings ["HTML", "PHP", "LATEX"]
+  -- LaTeX via https://www.dokuwiki.org/plugin:latex
+  char '>'
+  optional (manyTill spaceChar eol)
+  contents <- manyTillChar anyChar
+               (try $ string "</" *> string (T.unpack fmt) *> char '>')
+  return $
+    case T.toLower fmt of
+         "php" -> B.rawBlock "html" $ "<?php " <> contents <> " ?>"
+         f -> B.rawBlock f contents
 
 table :: PandocMonad m => DWParser m B.Blocks
 table = do
   firstSeparator <- lookAhead tableCellSeparator
   rows <- tableRows
+  let firstRow = fromMaybe [] . Safe.headMay $ rows
   let (headerRow, body) = if firstSeparator == '^'
-                            then (head rows, tail rows)
+                            then (firstRow, drop 1 rows)
                             else ([], rows)
-  let attrs = (AlignDefault, ColWidthDefault) <$ transpose rows
+  -- Since Pandoc only has column level alignment, we have to make an arbitrary
+  -- choice of how to reconcile potentially different alignments in the row.
+  -- Here we end up assuming that the alignment of the header / first row is
+  -- what the user wants to apply to the whole thing.
+  let attrs =  map (\(a, _) -> (a, ColWidthDefault)) firstRow
   let toRow = Row nullAttr . map B.simpleCell
       toHeaderRow l = [toRow l | not (null l)]
   pure $ B.table B.emptyCaption
                  attrs
-                 (TableHead nullAttr $ toHeaderRow headerRow)
-                 [TableBody nullAttr 0 [] $ map toRow body]
+                 (TableHead nullAttr $ toHeaderRow (map snd headerRow))
+                 [TableBody nullAttr 0 [] $ map (toRow . (map snd)) body]
                  (TableFoot nullAttr [])
 
-tableRows :: PandocMonad m => DWParser m [[B.Blocks]]
+
+tableRows :: PandocMonad m => DWParser m [[(Alignment, B.Blocks)]]
 tableRows = many1 tableRow
 
-tableRow :: PandocMonad m => DWParser m [B.Blocks]
+tableRow :: PandocMonad m => DWParser m [(Alignment, B.Blocks)]
 tableRow = many1Till tableCell tableRowEnd
 
 tableRowEnd :: PandocMonad m => DWParser m Char
@@ -492,17 +536,27 @@ tableRowEnd = try $ tableCellSeparator <* manyTill spaceChar eol
 tableCellSeparator :: PandocMonad m => DWParser m Char
 tableCellSeparator = char '|' <|> char '^'
 
-tableCell :: PandocMonad m => DWParser m B.Blocks
-tableCell = try $ B.plain . B.trimInlines . mconcat <$> (normalCell <|> headerCell)
+tableCell :: PandocMonad m => DWParser m (Alignment, B.Blocks)
+tableCell = try $ (second (B.plain . B.trimInlines . mconcat)) <$> cellContent
   where
-    normalCell = char '|' *> manyTill inline' (lookAhead tableCellSeparator)
-    headerCell = char '^' *> manyTill inline' (lookAhead tableCellSeparator)
+    cellContent = do
+      -- https://www.dokuwiki.org/wiki:syntax#tables
+      -- DokuWiki represents the alignment of cells with two spaces padding.
+      tableCellSeparator
+      cellInline <- manyTill inlineUnconsolidatedWhitespace (lookAhead tableCellSeparator)
+      let left  = [B.space, B.space] `isPrefixOf` cellInline
+      let right = [B.space, B.space] `isSuffixOf` cellInline
+      let alignment = case (left, right) of
+                           (True, True)   -> AlignCenter
+                           (True, False)  -> AlignRight
+                           (False, True)  -> AlignLeft
+                           (False, False) -> AlignDefault
+      return (alignment, cellInline)
+
 
 blockCode :: PandocMonad m => DWParser m B.Blocks
-blockCode = codeTag B.codeBlockWith "code"
-
-blockFile :: PandocMonad m => DWParser m B.Blocks
-blockFile = codeTag B.codeBlockWith "file"
+blockCode = codeTag B.codeBlockWith "code" <|>
+            codeTag B.codeBlockWith "file"
 
 para :: PandocMonad m => DWParser m B.Blocks
 para = result . mconcat <$> many1Till inline endOfParaElement
@@ -510,7 +564,8 @@ para = result . mconcat <$> many1Till inline endOfParaElement
    endOfParaElement = lookAhead $ endOfInput <|> endOfPara <|> newBlockElement
    endOfInput       = try $ skipMany blankline >> skipSpaces >> eof
    endOfPara        = try $ blankline >> skipMany1 blankline
-   newBlockElement  = try $ blankline >> void blockElements
+   newBlockElement  = try (blankline >> void blockElements)
+                       <|> lookAhead (void blockCode)
    result content   = if F.all (==Space) content
                       then mempty
                       else B.para $ B.trimInlines content

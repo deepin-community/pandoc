@@ -7,7 +7,7 @@ Last-Update: 2018-09-01
 This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
 --- a/src/Text/Pandoc/Error.hs
 +++ b/src/Text/Pandoc/Error.hs
-@@ -110,7 +110,7 @@
+@@ -85,7 +85,7 @@
      PandocSyntaxMapError s -> s
      PandocFailOnWarningError -> "Failing because there were warnings."
      PandocPDFProgramNotFoundError pdfprog ->

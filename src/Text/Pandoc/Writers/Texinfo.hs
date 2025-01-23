@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {- |
    Module      : Text.Pandoc.Writers.Texinfo
-   Copyright   : Copyright (C) 2008-2022 John MacFarlane
+   Copyright   : Copyright (C) 2008-2024 John MacFarlane
                                2012 Peter Wang
    License     : GNU GPL, version 2 or above
 
@@ -12,35 +12,54 @@
 Conversion of 'Pandoc' format into Texinfo.
 -}
 module Text.Pandoc.Writers.Texinfo ( writeTexinfo ) where
+import Control.Monad (zipWithM, unless)
 import Control.Monad.Except (throwError)
 import Control.Monad.State.Strict
+    ( StateT, MonadState(get), gets, modify, evalStateT )
 import Data.Char (chr, ord, isAlphaNum)
 import Data.List (maximumBy, transpose, foldl')
 import Data.List.NonEmpty (nonEmpty)
 import Data.Ord (comparing)
-import qualified Data.Set as Set
+import qualified Data.Map as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import Network.URI (unEscapeString)
 import System.FilePath
 import Text.Pandoc.Class.PandocMonad (PandocMonad, report)
 import Text.Pandoc.Definition
+import Text.Pandoc.Walk (walkM)
 import Text.Pandoc.Error
 import Text.Pandoc.ImageSize
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
 import Text.DocLayout
 import Text.Pandoc.Shared
+import Text.Pandoc.URI
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Writers.Shared
 import Text.Printf (printf)
 
 data WriterState =
   WriterState { stStrikeout   :: Bool  -- document contains strikeout
-              , stEscapeComma :: Bool -- in a context where we need @comma
-              , stIdentifiers :: Set.Set Text -- header ids used already
+              , stContext     :: Context
+              , stNodes       :: M.Map Text Int -- maps node to number of duplicates
+              , stHeadings    :: M.Map Text Text -- header ids to node texts
               , stOptions     :: WriterOptions -- writer options
               }
+
+data Context = NormalContext | NodeContext
+  deriving (Eq, Show)
+
+withContext :: PandocMonad m => Context -> TI m a -> TI m a
+withContext context pa = do
+  oldContext <- gets stContext
+  modify $ \s -> s{ stContext = context }
+  res <- pa
+  modify $ \s -> s{ stContext = oldContext }
+  pure res
+
+disallowedInNode :: Char -> Bool
+disallowedInNode c = c `elem` ['.',':',',','(',')']
 
 {- TODO:
  - internal cross references a la HTML
@@ -53,16 +72,36 @@ type TI m = StateT WriterState m
 writeTexinfo :: PandocMonad m => WriterOptions -> Pandoc -> m Text
 writeTexinfo options document =
   evalStateT (pandocToTexinfo options $ wrapTop document)
-  WriterState { stStrikeout = False, stEscapeComma = False,
-                stIdentifiers = Set.empty, stOptions = options}
+  WriterState { stStrikeout = False,
+                stContext = NormalContext,
+                stNodes = mempty,
+                stHeadings = mempty,
+                stOptions = options}
 
 -- | Add a "Top" node around the document, needed by Texinfo.
 wrapTop :: Pandoc -> Pandoc
 wrapTop (Pandoc meta blocks) =
   Pandoc meta (Header 0 nullAttr (docTitle meta) : blocks)
 
+addNodeText :: PandocMonad m => Block -> TI m Block
+addNodeText (Header lev (ident,_,_) ils) | lev >= 1 && lev <= 4 = do
+  node <- render Nothing <$> withContext NodeContext (inlineListToTexinfo ils)
+  nodes <- gets stNodes
+  node' <- case M.lookup node nodes of
+                Just i -> do
+                  modify $ \st -> st{ stNodes = M.adjust (+ 1) node nodes }
+                  pure $ node <> " " <> tshow (i + 1)
+                Nothing -> do
+                  modify $ \st -> st{ stNodes = M.insert node 1 nodes }
+                  pure node
+  unless (T.null ident) $
+    modify $ \st -> st{ stHeadings = M.insert ident node' (stHeadings st) }
+  pure $ Header lev (ident,[],[("node", node')]) ils
+addNodeText x = pure  x
+
 pandocToTexinfo :: PandocMonad m => WriterOptions -> Pandoc -> TI m Text
-pandocToTexinfo options (Pandoc meta blocks) = do
+pandocToTexinfo options (Pandoc meta blocks') = do
+  blocks <- walkM addNodeText blocks'
   let titlePage = not $ all null
                       $ docTitle meta : docDate meta : docAuthors meta
   let colwidth = if writerWrapText options == WrapAuto
@@ -84,27 +123,26 @@ pandocToTexinfo options (Pandoc meta blocks) = do
        Just tpl -> renderTemplate tpl context
 
 -- | Escape things as needed for Texinfo.
-stringToTexinfo :: Text -> Text
+stringToTexinfo :: PandocMonad m => Text -> TI m Text
 stringToTexinfo t
-  | T.all isAlphaNum t = t
-  | otherwise = T.concatMap escChar t
-  where escChar '{'      = "@{"
-        escChar '}'      = "@}"
-        escChar '@'      = "@@"
-        escChar '\160'   = "@ "
-        escChar '\x2014' = "---"
-        escChar '\x2013' = "--"
-        escChar '\x2026' = "@dots{}"
-        escChar '\x2019' = "'"
-        escChar c        = T.singleton c
-
-escapeCommas :: PandocMonad m => TI m (Doc Text) -> TI m (Doc Text)
-escapeCommas parser = do
-  oldEscapeComma <- gets stEscapeComma
-  modify $ \st -> st{ stEscapeComma = True }
-  res <- parser
-  modify $ \st -> st{ stEscapeComma = oldEscapeComma }
-  return res
+  | T.all isAlphaNum t = pure t
+  | otherwise = do
+      context <- gets stContext
+      let escChar '{'      = "@{"
+          escChar '}'      = "@}"
+          escChar '@'      = "@@"
+          escChar '\160'   = "@ "
+          escChar '\x2014' = "---"
+          escChar '\x2013' = "--"
+          escChar '\x2026' = "@dots{}"
+          escChar '\x2019' = "'"
+          escChar ',' | context == NodeContext = ""
+          escChar ':' | context == NodeContext = ""
+          escChar '.' | context == NodeContext = ""
+          escChar '(' | context == NodeContext = ""
+          escChar ')' | context == NodeContext = ""
+          escChar c        = T.singleton c
+      pure $ T.concatMap escChar t
 
 -- | Puts contents into Texinfo command.
 inCmd :: Text -> Doc Text -> Doc Text
@@ -115,21 +153,10 @@ blockToTexinfo :: PandocMonad m
                => Block     -- ^ Block to convert
                -> TI m (Doc Text)
 
-blockToTexinfo Null = return empty
-
 blockToTexinfo (Div _ bs) = blockListToTexinfo bs
 
 blockToTexinfo (Plain lst) =
   inlineListToTexinfo lst
-
--- title beginning with fig: indicates that the image is a figure
-blockToTexinfo (SimpleFigure attr txt (src, tit)) = do
-      capt <- if null txt
-              then return empty
-              else (\c -> text "@caption" <> braces c) `fmap`
-                     inlineListToTexinfo txt
-      img  <- inlineToTexinfo (Image attr txt (src,tit))
-      return $ text "@float" $$ img $$ capt $$ text "@end float"
 
 blockToTexinfo (Para lst) =
   inlineListToTexinfo lst    -- this is handled differently from Plain in blockListToTexinfo
@@ -205,22 +232,12 @@ blockToTexinfo (Header 0 _ lst) = do
   return $ text "@node Top" $$
            text "@top " <> txt <> blankline
 
-blockToTexinfo (Header level (ident,_,_) lst)
-  | level < 1 || level > 4 = blockToTexinfo (Para lst)
-  | otherwise = do
-    node <- inlineListForNode lst
+blockToTexinfo (Header level (_,_,[("node",node)]) lst) = do
     txt <- inlineListToTexinfo lst
-    idsUsed <- gets stIdentifiers
-    opts <- gets stOptions
-    let id' = if T.null ident
-                 then uniqueIdent (writerExtensions opts) lst idsUsed
-                 else ident
-    modify $ \st -> st{ stIdentifiers = Set.insert id' idsUsed }
     sec <- seccmd level
     return $ if (level > 0) && (level <= 4)
-                then blankline <> text "@node " <> node $$
-                     literal sec <> txt $$
-                     text "@anchor" <> braces (literal $ "#" <> id')
+                then blankline <> text "@node " <> literal node $$
+                     literal sec <> txt
                 else txt
     where
       seccmd :: PandocMonad m => Int -> TI m Text
@@ -229,6 +246,9 @@ blockToTexinfo (Header level (ident,_,_) lst)
       seccmd 3 = return "@subsection "
       seccmd 4 = return "@subsubsection "
       seccmd _ = throwError $ PandocSomeError "illegal seccmd level"
+
+-- non-node header:
+blockToTexinfo (Header _ _ lst) = blockToTexinfo (Para lst)
 
 blockToTexinfo (Table _ blkCapt specs thead tbody tfoot) = do
   let (caption, aligns, widths, heads, rows) = toLegacyTable blkCapt specs thead tbody tfoot
@@ -254,10 +274,43 @@ blockToTexinfo (Table _ blkCapt specs thead tbody tfoot) = do
                   text "@end multitable"
   return $ if isEmpty captionText
               then tableBody <> blankline
-              else text "@float" $$
+              else text "@float Table" $$
                    tableBody $$
                    inCmd "caption" captionText $$
                    text "@end float"
+
+blockToTexinfo (Figure _ caption [SimpleFigure attr figCaption tgt]) = do
+  let capt = if null figCaption
+             then let (Caption _ cblks) = caption
+                  in blocksToInlines cblks
+             else figCaption
+  captionText <- if null capt
+                 then return empty
+                 else (text "@caption" <>) . braces <$> inlineListToTexinfo capt
+  img  <- inlineToTexinfo (Image attr figCaption tgt)
+  return $ text "@float Figure" $$ img $$ captionText $$ text "@end float"
+
+blockToTexinfo (Figure _ fCaption [
+    Table attr tCaption@(Caption _ cbody) specs thead tbody tfoot]) = do
+  let caption = case cbody of
+                  [] -> fCaption
+                  _  -> tCaption
+  blockToTexinfo (Table attr caption specs thead tbody tfoot)
+
+blockToTexinfo (Figure _ (Caption _ caption) body) = do
+  captionText <- inlineListToTexinfo $ blocksToInlines caption
+  content <- blockListToTexinfo body
+  return $ text ("@float" ++ floatType body) $$ content $$ (
+      if isEmpty captionText
+         then empty
+         else inCmd "caption" captionText
+    ) $$ text "@end float"
+  where
+  -- floatType according to
+  -- https://www.gnu.org/software/texinfo/manual/texinfo/html_node/_0040float.html
+  floatType [SimpleFigure {}] = " Figure"
+  floatType [Table {}] = " Table"
+  floatType _ = ""
 
 tableHeadToTexinfo :: PandocMonad m
                    => [Alignment]
@@ -334,19 +387,23 @@ collectNodes :: Int -> [Block] -> [Block]
 collectNodes _ [] = []
 collectNodes level (x:xs) =
   case x of
-    (Header hl _ _) | hl < level -> []
-                    | hl == level -> x : collectNodes level xs
-                    | otherwise -> collectNodes level xs
+    (Header hl _ _)
+      | hl < level -> []
+      | hl == level -> x : collectNodes level xs
+      | otherwise -> collectNodes level xs
     _ ->
       collectNodes level xs
 
 makeMenuLine :: PandocMonad m
              => Block
              -> TI m (Doc Text)
-makeMenuLine (Header _ _ lst) = do
-  txt <- inlineListForNode lst
-  return $ text "* " <> txt <> text "::"
-makeMenuLine _ = throwError $ PandocSomeError "makeMenuLine called with non-Header block"
+makeMenuLine (Header _ (_,_,[("node", node)]) lst) = do
+  txt <- withContext NodeContext $ inlineListToTexinfo lst
+  pure $ nowrap $ text "* " <>
+    if render Nothing txt == node
+       then literal node <> "::"
+       else txt <> ": " <> literal node <> "."
+makeMenuLine _ = throwError $ PandocSomeError "makeMenuLine called with non-node"
 
 listItemToTexinfo :: PandocMonad m
                   => [Block]
@@ -375,17 +432,6 @@ inlineListToTexinfo :: PandocMonad m
                     => [Inline]  -- ^ Inlines to convert
                     -> TI m (Doc Text)
 inlineListToTexinfo lst = hcat <$> mapM inlineToTexinfo lst
-
--- | Convert list of inline elements to Texinfo acceptable for a node name.
-inlineListForNode :: PandocMonad m
-                  => [Inline]  -- ^ Inlines to convert
-                  -> TI m (Doc Text)
-inlineListForNode = return . literal . stringToTexinfo .
-                    T.filter (not . disallowedInNode) . stringify
-
--- periods, commas, colons, and parentheses are disallowed in node names
-disallowedInNode :: Char -> Bool
-disallowedInNode c = c `elem` (".,:()" :: String)
 
 -- | Convert inline element to Texinfo
 inlineToTexinfo :: PandocMonad m
@@ -421,8 +467,13 @@ inlineToTexinfo (Subscript lst) = do
 inlineToTexinfo (SmallCaps lst) =
   inCmd "sc" <$> inlineListToTexinfo lst
 
-inlineToTexinfo (Code _ str) =
-  return $ literal $ "@code{" <> stringToTexinfo str <> "}"
+inlineToTexinfo (Code (_, cls , _) str) | T.pack "variable" `elem` cls  = do
+  code <- stringToTexinfo str
+  return $ literal $ "@code{@var{" <> code <> "}}"
+
+inlineToTexinfo (Code _ str) = do
+  code <- stringToTexinfo str
+  return $ literal $ "@code{" <> code <> "}"
 
 inlineToTexinfo (Quoted SingleQuote lst) = do
   contents <- inlineListToTexinfo lst
@@ -434,7 +485,7 @@ inlineToTexinfo (Quoted DoubleQuote lst) = do
 
 inlineToTexinfo (Cite _ lst) =
   inlineListToTexinfo lst
-inlineToTexinfo (Str str) = return $ literal (stringToTexinfo str)
+inlineToTexinfo (Str str) = literal <$> stringToTexinfo str
 inlineToTexinfo (Math _ str) = return $ inCmd "math" $ literal str
 inlineToTexinfo il@(RawInline f str)
   | f == "latex" || f == "tex" =
@@ -453,21 +504,28 @@ inlineToTexinfo SoftBreak = do
 inlineToTexinfo Space = return space
 
 inlineToTexinfo (Link _ txt (src, _))
-  | Just ('#', _) <- T.uncons src = do
-      contents <- escapeCommas $ inlineListToTexinfo txt
-      return $ text "@ref" <>
-        braces (literal (stringToTexinfo src) <> text "," <> contents)
+  | Just ('#', ident) <- T.uncons src = do
+      headings <- gets stHeadings
+      target <- case M.lookup ident headings of
+                  Nothing -> literal <$> stringToTexinfo
+                                    (T.filter (not . disallowedInNode) src)
+                  Just node -> pure $ literal node
+      contents <- withContext NodeContext $ inlineListToTexinfo txt
+      return $ text "@ref"
+        <> braces (target <> if contents == target
+                                then mempty
+                                else text ",," <> contents)
   | otherwise = case txt of
       [Str x] | escapeURI x == src ->  -- autolink
                   return $ literal $ "@url{" <> x <> "}"
       _ -> do
-        contents <- escapeCommas $ inlineListToTexinfo txt
-        let src1 = stringToTexinfo src
+        contents <- withContext NodeContext $ inlineListToTexinfo txt
+        src1 <- stringToTexinfo src
         return $ literal ("@uref{" <> src1 <> ",") <> contents <>
                  char '}'
 
 inlineToTexinfo (Image attr alternate (source, _)) = do
-  content <- escapeCommas $ inlineListToTexinfo alternate
+  content <- withContext NodeContext $ inlineListToTexinfo alternate
   opts <- gets stOptions
   let showDim dim = case dimension dim attr of
                       (Just (Pixel a))   -> showInInch opts (Pixel a) <> "in"

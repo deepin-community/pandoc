@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-
-Copyright (C) 2012-2022 John MacFarlane <jgm@berkeley.edu>
+Copyright (C) 2012-2024 John MacFarlane <jgm@berkeley.edu>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -28,6 +28,7 @@ import Test.Tasty.Bench
 import qualified Data.ByteString.Lazy as BL
 import Data.Maybe (mapMaybe)
 import Data.List (sortOn)
+import Text.Pandoc.Format (FlavoredFormat(..))
 
 readerBench :: Pandoc
             -> T.Text
@@ -36,16 +37,17 @@ readerBench _ name
   | name `elem` ["bibtex", "biblatex", "csljson"] = Nothing
 readerBench doc name = either (const Nothing) Just $
   runPure $ do
-    (rdr, rexts) <- getReader name
-    (wtr, wexts) <- getWriter name
+    (rdr, rexts) <- getReader $ FlavoredFormat name mempty
+    (wtr, wexts) <- getWriter $ FlavoredFormat name mempty
+    tmpl <- Just <$> compileDefaultTemplate name
     case (rdr, wtr) of
       (TextReader r, TextWriter w) -> do
         inp <- w def{ writerWrapText = WrapAuto
-                    , writerExtensions = wexts } doc
+                    , writerExtensions = wexts
+                    , writerTemplate = tmpl } doc
         return $ bench (T.unpack name) $
           nf (either (error . show) id . runPure . r def) inp
       (ByteStringReader r, ByteStringWriter w) -> do
-        tmpl <- Just <$> compileDefaultTemplate name
         inp <- w def{ writerWrapText = WrapAuto
                     , writerExtensions = wexts
                     , writerTemplate = tmpl } doc
@@ -70,7 +72,7 @@ writerBench _ _ name
   | name `elem` ["bibtex", "biblatex", "csljson"] = Nothing
 writerBench imgs doc name = either (const Nothing) Just $
   runPure $ do
-    (wtr, wexts) <- getWriter name
+    (wtr, wexts) <- getWriter $ FlavoredFormat name mempty
     case wtr of
       TextWriter writerFun ->
         return $ bench (T.unpack name)

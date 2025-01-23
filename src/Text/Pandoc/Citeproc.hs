@@ -16,19 +16,22 @@ import Text.Pandoc.Citeproc.Locator (parseLocator, toLocatorMap,
                                      LocatorInfo(..))
 import Text.Pandoc.Citeproc.CslJson (cslJsonToReferences)
 import Text.Pandoc.Citeproc.BibTeX (readBibtexString, Variant(..))
+import Text.Pandoc.MIME (MimeType)
+import Text.Pandoc.Readers.RIS (readRIS)
 import Text.Pandoc.Citeproc.MetaValue (metaValueToReference, metaValueToText)
 import Text.Pandoc.Readers.Markdown (yamlToRefs)
 import Text.Pandoc.Builder (Inlines, Many(..), deleteMeta, setMeta)
 import qualified Text.Pandoc.Builder as B
 import Text.Pandoc.Definition as Pandoc
 import Text.Pandoc.Class (PandocMonad(..), getResourcePath, getUserDataDir,
-                          fetchItem, readDataFile, report, setResourcePath)
+                          fetchItem, report, setResourcePath, toTextM)
+import Text.Pandoc.Data (readDataFile)
 import Text.Pandoc.Error (PandocError(..))
 import Text.Pandoc.Extensions (pandocExtensions)
 import Text.Pandoc.Logging (LogMessage(..))
 import Text.Pandoc.Options (ReaderOptions(..))
-import Text.Pandoc.Shared (stringify, ordNub, tshow)
-import qualified Text.Pandoc.UTF8 as UTF8
+import Text.Pandoc.Shared (stringify, tshow)
+import Data.Containers.ListUtils (nubOrd)
 import Text.Pandoc.Walk (query, walk, walkM)
 import Control.Applicative ((<|>))
 import Control.Monad.Except (catchError, throwError)
@@ -73,7 +76,9 @@ processCitations (Pandoc meta bs) = do
   let citations = getCitations locale otherIdsMap $ Pandoc meta' bs
 
 
-  let linkCites = maybe False truish $ lookupMeta "link-citations" meta
+  let linkCites = maybe False truish (lookupMeta "link-citations" meta) &&
+                  -- don't link citations if no bibliography to link to:
+             not (maybe False truish (lookupMeta "suppress-bibliography" meta))
   let linkBib = maybe True truish $ lookupMeta "link-bibliography" meta
   let opts = defaultCiteprocOptions{ linkCitations = linkCites
                                    , linkBibliography = linkBib }
@@ -84,7 +89,7 @@ processCitations (Pandoc meta bs) = do
                 "csl-bib-body" :
                 ["hanging-indent" | styleHangingIndent sopts]
   let refkvs = (case styleEntrySpacing sopts of
-                   Just es | es > 0 -> (("entry-spacing",T.pack $ show es):)
+                   Just es -> (("entry-spacing",T.pack $ show es):)
                    _ -> id) .
                (case styleLineSpacing sopts of
                    Just ls | ls > 1 -> (("line-spacing",T.pack $ show ls):)
@@ -107,8 +112,8 @@ processCitations (Pandoc meta bs) = do
          evalState (walkM insertResolvedCitations $ Pandoc meta' bs)
          $ cits
   return $ walk removeQuoteSpan
-         $ Pandoc meta''
-         $ insertRefs refkvs classes meta'' (B.toList bibs) bs'
+         $ insertRefs refkvs classes (B.toList bibs)
+         $ Pandoc meta'' bs'
 
 removeQuoteSpan :: Inline -> Inline
 removeQuoteSpan (Span ("",["csl-quoted"],[]) xs) = Span nullAttr xs
@@ -139,7 +144,8 @@ getStyle (Pandoc meta _) = do
 
   let getCslDefault = readDataFile "default.csl"
 
-  cslContents <- UTF8.toText <$> maybe getCslDefault (getFile ".csl") cslfile
+  cslContents <- maybe getCslDefault (getFile ".csl") cslfile >>=
+                   toTextM (maybe mempty T.unpack cslfile)
 
   let abbrevFile = lookupMeta "citation-abbreviations" meta >>= metaValueToText
 
@@ -157,8 +163,8 @@ getStyle (Pandoc meta _) = do
   let getParentStyle url = do
         -- first, try to retrieve the style locally, then use HTTP.
         let basename = T.takeWhileEnd (/='/') url
-        UTF8.toText <$>
-          catchError (getFile ".csl" basename) (\_ -> fst <$> fetchItem url)
+        catchError (getFile ".csl" basename) (\_ -> fst <$> fetchItem url)
+          >>= toTextM (T.unpack url)
 
   styleRes <- Citeproc.parseStyle getParentStyle cslContents
   case styleRes of
@@ -234,8 +240,8 @@ insertSpace ils =
 getRefsFromBib :: PandocMonad m
                => Locale -> (Text -> Bool) -> Text -> m [Reference Inlines]
 getRefsFromBib locale idpred fp = do
-  (raw, _) <- fetchItem fp
-  case formatFromExtension (T.unpack fp) of
+  (raw, mt) <- fetchItem fp
+  case getBibliographyFormat (T.unpack fp) mt of
     Just f -> getRefs locale f idpred (Just fp) raw
     Nothing -> throwError $ PandocAppError $
                  "Could not determine bibliography format for " <> fp
@@ -250,13 +256,14 @@ getRefs :: PandocMonad m
 getRefs locale format idpred mbfp raw = do
   let err' = throwError .
              PandocBibliographyError (fromMaybe mempty mbfp)
+  let fp = maybe mempty T.unpack mbfp
   case format of
     Format_bibtex ->
-      either (err' . tshow) return .
-        readBibtexString Bibtex locale idpred . UTF8.toText $ raw
+      toTextM fp raw >>=
+        either (err' . tshow) return . readBibtexString Bibtex locale idpred
     Format_biblatex ->
-      either (err' . tshow) return .
-        readBibtexString Biblatex locale idpred . UTF8.toText $ raw
+      toTextM fp raw >>=
+      either (err' . tshow) return . readBibtexString Biblatex locale idpred
     Format_json ->
       either (err' . T.pack)
              (return . filter (idpred . unItemId . referenceId)) .
@@ -267,6 +274,11 @@ getRefs locale format idpred mbfp raw = do
               (T.unpack <$> mbfp)
               raw
       return $ mapMaybe metaValueToReference rs
+    Format_ris -> do
+      Pandoc meta _ <- toTextM fp raw >>= readRIS def
+      case lookupMeta "references" meta of
+        Just (MetaList rs) -> return $ mapMaybe metaValueToReference rs
+        _ -> return []
 
 -- assumes we walk in same order as query
 insertResolvedCitations :: Inline -> State [Inlines] Inline
@@ -321,7 +333,7 @@ fromPandocCitations locale otherIdsMap = concatMap go
                , citationItemSuffix = case suffix of
                                         [] -> Nothing
                                         ils -> Just $ B.fromList ils
-               }
+               , citationItemData = Nothing }
      in if Pandoc.citationId c == "*"
            then []
            else
@@ -343,18 +355,31 @@ data BibFormat =
   | Format_bibtex
   | Format_json
   | Format_yaml
+  | Format_ris
   deriving (Show, Eq, Ord)
 
-formatFromExtension :: FilePath -> Maybe BibFormat
-formatFromExtension fp = case dropWhile (== '.') $ takeExtension fp of
-                           "biblatex" -> Just Format_biblatex
-                           "bibtex"   -> Just Format_bibtex
-                           "bib"      -> Just Format_biblatex
-                           "json"     -> Just Format_json
-                           "yaml"     -> Just Format_yaml
-                           "yml"      -> Just Format_yaml
-                           _          -> Nothing
-
+getBibliographyFormat :: FilePath -> Maybe MimeType -> Maybe BibFormat
+getBibliographyFormat fp mbmime = do
+  let ext = takeExtension fp
+  case ext of
+    ".biblatex" -> pure Format_biblatex
+    ".bibtex"   -> pure Format_bibtex
+    ".bib"      -> pure Format_biblatex
+    ".json"     -> pure Format_json
+    ".yaml"     -> pure Format_yaml
+    ".yml"      -> pure Format_yaml
+    ".ris"      -> pure Format_ris
+    _ -> do
+      mime <- mbmime
+      case T.takeWhile (/= ';') mime of
+            "application/x-bibtex" -> pure Format_biblatex
+            "application/x-reseach-info-systems" -> pure Format_ris
+            "application/vnd.citationstyles.csl+json" -> pure Format_json
+            "application/json" -> pure Format_json
+            "application/x-yaml" -> pure Format_yaml
+            "text/x-yaml" -> pure Format_yaml
+            "text/yaml" -> pure Format_yaml
+            _ -> Nothing
 
 isNote :: Inline -> Bool
 isNote (Cite _ [Note _]) = True
@@ -453,23 +478,24 @@ isYesValue _ = False
 -- if document contains a Div with id="refs", insert
 -- references as its contents.  Otherwise, insert references
 -- at the end of the document in a Div with id="refs"
-insertRefs :: [(Text,Text)] -> [Text] -> Meta -> [Block] -> [Block] -> [Block]
-insertRefs _ _ _  []   bs = bs
-insertRefs refkvs refclasses meta refs bs =
-  if isRefRemove meta
-     then bs
-     else case runState (walkM go bs) False of
-               (bs', True) -> bs'
-               (_, False)
-                 -> case refTitle meta of
+insertRefs :: [(Text,Text)] -> [Text] -> [Block] -> Pandoc -> Pandoc
+insertRefs _ _ [] d = d
+insertRefs refkvs refclasses refs (Pandoc meta bs) =
+  case lookupMeta "suppress-bibliography" meta of
+    Just x | truish x -> Pandoc meta bs
+    _ -> case runState (walkM go (Pandoc meta bs)) False of
+               (d', True) -> d'
+               (Pandoc meta' bs', False)
+                 -> Pandoc meta' $
+                    case refTitle meta of
                       Nothing ->
-                        case reverse bs of
+                        case reverse bs' of
                           Header lev (id',classes,kvs) ys : xs ->
                             reverse xs ++
                             [Header lev (id',addUnNumbered classes,kvs) ys,
                              Div ("refs",refclasses,refkvs) refs]
-                          _ -> bs ++ [refDiv]
-                      Just ils -> bs ++
+                          _ -> bs' ++ [refDiv]
+                      Just ils -> bs' ++
                         [Header 1 ("bibliography", ["unnumbered"], []) ils,
                          refDiv]
   where
@@ -479,8 +505,8 @@ insertRefs refkvs refclasses meta refs bs =
    go (Div ("refs",cs,kvs) xs) = do
      put True
      -- refHeader isn't used if you have an explicit references div
-     let cs' = ordNub $ cs ++ refclasses
-     let kvs' = ordNub $ kvs ++ refkvs
+     let cs' = nubOrd $ cs ++ refclasses
+     let kvs' = nubOrd $ kvs ++ refkvs
      return $ Div ("refs",cs',kvs') (xs ++ refs)
    go x = return x
 
@@ -492,10 +518,6 @@ refTitle meta =
     Just (MetaBlocks [Plain ils]) -> Just ils
     Just (MetaBlocks [Para ils])  -> Just ils
     _                             -> Nothing
-
-isRefRemove :: Meta -> Bool
-isRefRemove meta =
-  maybe False truish $ lookupMeta "suppress-bibliography" meta
 
 legacyDateRanges :: Reference Inlines -> Reference Inlines
 legacyDateRanges ref =

@@ -72,7 +72,17 @@ docHToBlocks d' =
     DocHeader h -> B.header (headerLevel h)
                            (docHToInlines False $ headerTitle h)
     DocUnorderedList items -> B.bulletList (map docHToBlocks items)
+#if MIN_VERSION_haddock_library(1,11,0)
+    DocOrderedList items ->
+      B.orderedListWith attr (map (docHToBlocks . snd) items)
+     where
+      attr = (start, DefaultStyle, DefaultDelim)
+      start = case items of
+                [] -> 1
+                ((n,_):_) -> n
+#else
     DocOrderedList items -> B.orderedList (map docHToBlocks items)
+#endif
     DocDefList items -> B.definitionList (map (\(d,t) ->
                                (docHToInlines False d,
                                 [consolidatePlains $ docHToBlocks t])) items)
@@ -91,10 +101,9 @@ docHToBlocks d' =
              toRow = Row nullAttr . map B.simpleCell
              toHeaderRow l = [toRow l | not (null l)]
              (header, body) =
-               if null headerRows
-                  then ([], map toCells bodyRows)
-                  else (toCells (head headerRows),
-                        map toCells (tail headerRows ++ bodyRows))
+               case headerRows of
+                  [] -> ([], map toCells bodyRows)
+                  (x:xs) -> (toCells x, map toCells (xs ++ bodyRows))
              colspecs = replicate (maybe 0 maximum (nonEmpty (map length body)))
                              (AlignDefault, ColWidthDefault)
          in  B.table B.emptyCaption

@@ -3,11 +3,11 @@
 {- |
    Module      : Text.Pandoc.Writers.Org
    Copyright   : © 2010-2015 Puneeth Chaganti <punchagan@gmail.com>
-                   2010-2022 John MacFarlane <jgm@berkeley.edu>
-                   2016-2022 Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+                   2010-2024 John MacFarlane <jgm@berkeley.edu>
+                   2016-2024 Albert Krewinkel <albert+pandoc@tarleb.com>
    License     : GNU GPL, version 2 or above
 
-   Maintainer  : Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+   Maintainer  : Albert Krewinkel <albert+pandoc@tarleb.com>
    Stability   : alpha
    Portability : portable
 
@@ -16,21 +16,26 @@ Conversion of 'Pandoc' documents to Emacs Org-Mode.
 Org-Mode:  <http://orgmode.org>
 -}
 module Text.Pandoc.Writers.Org (writeOrg) where
+import Control.Monad (zipWithM)
 import Control.Monad.State.Strict
+    ( StateT, gets, modify, evalStateT )
 import Data.Char (isAlphaNum, isDigit)
-import Data.List (intersect, intersperse, partition, transpose)
+import Data.List (intersperse, partition, dropWhileEnd, transpose)
 import Data.List.NonEmpty (nonEmpty)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Map as M
+import Text.DocLayout
 import Text.Pandoc.Class.PandocMonad (PandocMonad, report)
 import Text.Pandoc.Definition
 import Text.Pandoc.Logging
 import Text.Pandoc.Options
-import Text.DocLayout
 import Text.Pandoc.Shared
+import Text.Pandoc.URI
 import Text.Pandoc.Templates (renderTemplate)
 import Text.Pandoc.Citeproc.Locator (parseLocator, LocatorMap(..), LocatorInfo(..))
+import Text.Pandoc.Walk (query)
 import Text.Pandoc.Writers.Shared
 
 data WriterState =
@@ -85,16 +90,19 @@ noteToOrg num note = do
   return $ hang (length marker) (text marker) contents
 
 -- | Escape special characters for Org.
-escapeString :: Text -> Text
+escapeString :: Text -> Doc Text
 escapeString t
-  | T.all (\c -> c < '\x2013' || c > '\x2026') t = t
-  | otherwise = T.concatMap escChar t
+  | T.all isAlphaNum t = literal t
+  | otherwise = mconcat $ map escChar (T.unpack t)
   where
    escChar '\x2013' = "--"
    escChar '\x2014' = "---"
    escChar '\x2019' = "'"
    escChar '\x2026' = "..."
-   escChar c        = T.singleton c
+   escChar c
+     -- escape special chars with ZERO WIDTH SPACE as org manual suggests
+     | c == '*' || c == '#' || c == '|' = afterBreak "\x200B" <> char c
+     | otherwise = char c
 
 isRawFormat :: Format -> Bool
 isRawFormat f =
@@ -104,7 +112,14 @@ isRawFormat f =
 blockToOrg :: PandocMonad m
            => Block         -- ^ Block element
            -> Org m (Doc Text)
-blockToOrg Null = return empty
+blockToOrg (Div (_, ["cell", "code"], _) (CodeBlock attr t : bs)) = do
+  -- ipynb code cell
+  let (ident, classes, kvs) = attr
+  blockListToOrg (CodeBlock (ident, classes ++ ["code"], kvs) t : bs)
+blockToOrg (Div (_, ["output", "execute_result"], _) [CodeBlock _attr t]) = do
+  -- ipynb code result
+  return $ "#+RESULTS:" $$
+    (prefixed ": " . vcat . map literal $ T.split (== '\n') t)
 blockToOrg (Div attr@(ident,_,_) bs) = do
   opts <- gets stOptions
   -- Strip off bibliography if citations enabled
@@ -112,12 +127,6 @@ blockToOrg (Div attr@(ident,_,_) bs) = do
      then return mempty
      else divToOrg attr bs
 blockToOrg (Plain inlines) = inlineListToOrg inlines
-blockToOrg (SimpleFigure attr txt (src, tit)) = do
-      capt <- if null txt
-              then return empty
-              else ("#+caption: " <>) `fmap` inlineListToOrg txt
-      img <- inlineToOrg (Image attr txt (src,tit))
-      return $ capt $$ img $$ blankline
 blockToOrg (Para inlines) = do
   contents <- inlineListToOrg inlines
   return $ contents <> blankline
@@ -142,28 +151,62 @@ blockToOrg b@(RawBlock f str)
       return empty
 blockToOrg HorizontalRule = return $ blankline $$ "--------------" $$ blankline
 blockToOrg (Header level attr inlines) = do
-  contents <- inlineListToOrg inlines
-  let headerStr = text $ if level > 999 then " " else replicate level '*'
+  let tagName inline = case inline of
+        Span (_, _, kv) _ -> (:[]) <$> lookup "tag-name" kv
+        _                 -> Nothing
+  let (htext, tagsInlines) = break (isJust . tagName) inlines
+  contents <- inlineListToOrg $ dropWhileEnd (== Space) htext
+  columns  <- writerColumns <$> gets stOptions
+  let headerDoc = mconcat
+        [ text $ if level > 999 then " " else replicate level '*'
+        , literal " "
+        , contents
+        ]
+  let tags = case query tagName tagsInlines of
+               Nothing -> ""
+               Just ts -> T.cons ':' (T.intercalate ":" ts) `T.snoc` ':'
+  let tagsDoc = if T.null tags
+                then empty
+                else (<> literal tags) . text . (`replicate` ' ') . max 1 $
+                     columns - offset headerDoc - realLength tags
   let drawerStr = if attr == nullAttr
                   then empty
-                  else cr <> nest (level + 1) (propertiesDrawer attr)
-  return $ headerStr <> " " <> contents <> drawerStr <> cr
-blockToOrg (CodeBlock (_,classes,kvs) str) = do
+                  else cr <> propertiesDrawer attr
+  return $ nowrap (headerDoc <> tagsDoc) <> drawerStr <> cr
+blockToOrg (CodeBlock (ident,classes,kvs) str) = do
+  let name = if T.null ident
+             then empty
+             else literal $ "#+name: " <> ident
   let startnum = maybe "" (\x -> " " <> trimr x) $ lookup "startFrom" kvs
   let numberlines = if "numberLines" `elem` classes
                       then if "continuedSourceBlock" `elem` classes
                              then " +n" <> startnum
                              else " -n" <> startnum
                       else ""
-  let at = map pandocLangToOrg classes `intersect` orgLangIdentifiers
-  let (beg, end) = case at of
-                      []    -> ("#+begin_example" <> numberlines, "#+end_example")
-                      (x:_) -> ("#+begin_src " <> x <> numberlines, "#+end_src")
-  return $ literal beg $$ literal str $$ text end $$ blankline
+  let lang = case filter (`notElem` ["example","code"]) classes of
+        []  -> Nothing
+        l:_ -> if "code" `elem` classes    -- check for ipynb code cell
+               then Just ("jupyter-" <> pandocLangToOrg l)
+               else Just (pandocLangToOrg l)
+  let args = mconcat $
+             [ " :" <> k <> " " <> v
+             | (k, v) <- kvs, k `notElem` ["startFrom", "org-language"]]
+  let (beg, end) = case lang of
+        Nothing -> ("#+begin_example" <> numberlines, "#+end_example")
+        Just x  -> ("#+begin_src " <> x <> numberlines <> args, "#+end_src")
+  -- escape special lines
+  let escape_line line =
+        let (spaces, code) = T.span (\c -> c == ' ' || c == '\t') line
+        in spaces <>
+           (if T.isPrefixOf "#+" code || T.isPrefixOf "*" code
+            then T.cons ',' code
+            else code)
+  let escaped = T.unlines . map escape_line . T.lines $ str
+  return $ name $$ literal beg $$ literal escaped $$ literal end $$ blankline
 blockToOrg (BlockQuote blocks) = do
   contents <- blockListToOrg blocks
   return $ blankline $$ "#+begin_quote" $$
-           nest 2 contents $$ "#+end_quote" $$ blankline
+           chomp contents $$ "#+end_quote" $$ blankline
 blockToOrg (Table _ blkCapt specs thead tbody tfoot) =  do
   let (caption', _, _, headers, rows) = toLegacyTable blkCapt specs thead tbody tfoot
   caption'' <- inlineListToOrg caption'
@@ -213,6 +256,18 @@ blockToOrg (OrderedList (start, _, delim) items) = do
 blockToOrg (DefinitionList items) = do
   contents <- mapM definitionListItemToOrg items
   return $ vcat contents $$ blankline
+blockToOrg (Figure (ident, _, _) caption body) = do
+  -- Represent the figure as content that can be internally linked from other
+  -- parts of the document.
+  capt <- case caption of
+            Caption _ []  -> pure empty
+            Caption _ cpt -> ("#+caption: " <>) <$>
+                             inlineListToOrg (blocksToInlines cpt)
+  contents <-  blockListToOrg body
+  let anchor = if T.null ident
+               then empty
+               else "<<" <> literal ident <> ">>"
+  return (capt $$ anchor $$ contents $$ blankline)
 
 -- | Convert bullet list item (list of blocks) to Org.
 bulletListItemToOrg :: PandocMonad m => [Block] -> Org m (Doc Text)
@@ -297,6 +352,7 @@ data DivBlockType
                              --   key-value pairs.
   | UnwrappedWithAnchor Text -- ^ Not mapped to other type, only
                              --   identifier is retained (if any).
+  deriving (Show)
 
 -- | Gives the most suitable method to render a list of blocks
 -- with attributes.
@@ -313,23 +369,39 @@ divBlockType (ident, classes, kvs)
   = UnwrappedWithAnchor ident
  where
   isGreaterBlockClass :: Text -> Bool
-  isGreaterBlockClass = (`elem` ["center", "quote"]) . T.toLower
+  isGreaterBlockClass t = case T.toLower t of
+                            "center" -> True
+                            "quote" -> True
+                            x -> isAdmonition x
+
+isAdmonition :: Text -> Bool
+isAdmonition "warning" = True
+isAdmonition "important" = True
+isAdmonition "tip" = True
+isAdmonition "note" = True
+isAdmonition "caution" = True
+isAdmonition _ = False
 
 -- | Converts a Div to an org-mode element.
 divToOrg :: PandocMonad m
          => Attr -> [Block] -> Org m (Doc Text)
 divToOrg attr bs = do
-  contents <- blockListToOrg bs
   case divBlockType attr of
-    GreaterBlock blockName attr' ->
+    GreaterBlock blockName attr' -> do
       -- Write as greater block. The ID, if present, is added via
       -- the #+name keyword; other classes and key-value pairs
       -- are kept as #+attr_html attributes.
-      return $ blankline $$ attrHtml attr'
+      contents <- case bs of
+                    (Div ("",["title"],[]) _ : bs')
+                      | isAdmonition blockName -> blockListToOrg bs'
+                    _ -> blockListToOrg bs
+      return $ blankline
+            $$ attrHtml attr'
             $$ "#+begin_" <> literal blockName
-            $$ contents
+            $$ chomp contents
             $$ "#+end_" <> literal blockName $$ blankline
     Drawer drawerName (_,_,kvs) -> do
+      contents <- blockListToOrg bs
       -- Write as drawer. Only key-value pairs are retained.
       let keys = vcat $ map (\(k,v) ->
                                ":" <> literal k <> ":"
@@ -339,6 +411,7 @@ divToOrg attr bs = do
             $$ contents $$ blankline
             $$ text ":END:" $$ blankline
     UnwrappedWithAnchor ident -> do
+      contents <- blockListToOrg bs
       -- Unwrap the div. All attributes are discarded, except for
       -- the identifier, which is added as an anchor before the
       -- div contents.
@@ -353,9 +426,13 @@ attrHtml (ident, classes, kvs) =
   let
     name = if T.null ident then mempty else "#+name: " <> literal ident <> cr
     keyword = "#+attr_html"
-    classKv = ("class", T.unwords classes)
-    kvStrings = map (\(k,v) -> ":" <> k <> " " <> v) (classKv:kvs)
-  in name <> keyword <> ": " <> literal (T.unwords kvStrings) <> cr
+    addClassKv = if null classes
+                    then id
+                    else (("class", T.unwords classes):)
+    kvStrings = map (\(k,v) -> ":" <> k <> " " <> v) (addClassKv kvs)
+  in name <> if null kvStrings
+                then mempty
+                else keyword <> ": " <> literal (T.unwords kvStrings) <> cr
 
 -- | Convert list of Pandoc block elements to Org.
 blockListToOrg :: PandocMonad m
@@ -445,7 +522,7 @@ inlineToOrg (Cite cs lst) = do
        return $ "[cite" <> sty <> ":" <> citeItems <> "]"
      else inlineListToOrg lst
 inlineToOrg (Code _ str) = return $ "=" <> literal str <> "="
-inlineToOrg (Str str) = return . literal $ escapeString str
+inlineToOrg (Str str) = return $ escapeString str
 inlineToOrg (Math t str) = do
   modify $ \st -> st{ stHasMath = True }
   return $ if t == InlineMath
@@ -495,8 +572,8 @@ orgPath src = case T.uncons src of
     isUrl :: Text -> Bool
     isUrl cs =
       let (scheme, path) = T.break (== ':') cs
-      in T.all (\c -> isAlphaNum c || c `elemText` ".-") scheme
-         && not (T.null path)
+       in T.all (\c -> isAlphaNum c || T.any (== c) ".-") scheme
+          && not (T.null path)
 
 -- | Translate from pandoc's programming language identifiers to those used by
 -- org-mode.
@@ -508,53 +585,6 @@ pandocLangToOrg cs =
     "r"          -> "R"
     "bash"       -> "sh"
     _            -> cs
-
--- | List of language identifiers recognized by org-mode.
--- See <https://orgmode.org/manual/Languages.html>.
-orgLangIdentifiers :: [Text]
-orgLangIdentifiers =
-  [ "asymptote"
-  , "lisp"
-  , "awk"
-  , "lua"
-  , "C"
-  , "matlab"
-  , "C++"
-  , "mscgen"
-  , "clojure"
-  , "ocaml"
-  , "css"
-  , "octave"
-  , "D"
-  , "org"
-  , "ditaa"
-  , "oz"
-  , "calc"
-  , "perl"
-  , "emacs-lisp"
-  , "plantuml"
-  , "eshell"
-  , "processing"
-  , "fortran"
-  , "python"
-  , "gnuplot"
-  , "R"
-  , "screen"
-  , "ruby"
-  , "dot"
-  , "sass"
-  , "haskell"
-  , "scheme"
-  , "java"
-  , "sed"
-  , "js"
-  , "sh"
-  , "latex"
-  , "sql"
-  , "ledger"
-  , "sqlite"
-  , "lilypond"
-  , "vala" ]
 
 -- taken from oc-csl.el in the org source tree:
 locmap :: LocatorMap
