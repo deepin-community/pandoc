@@ -2,271 +2,32 @@ Source: pandoc
 Section: text
 Priority: optional
 Maintainer: Debian Haskell Group <debian-haskell@lists.debian.org>
-Uploaders: Jonas Smedegaard <dr@jones.dk>
- , Kiwamu Okabe <kiwamu@debian.or.jp>
- , Clint Adams <clint@debian.org>
-Build-Depends: cdbs,
+Uploaders:
+ Jonas Smedegaard <dr@jones.dk>,
+ Kiwamu Okabe <kiwamu@debian.or.jp>,
+ Clint Adams <clint@debian.org>,
+Build-Depends:
+ alex,
+ bash-completion,
+ cdbs,
  debhelper,
  dh-buildinfo,
  ghc,
  ghc-prof,
- alex,
  happy,
- libghc-aeson-dev (<< 2.1),
- libghc-aeson-prof,
- libghc-aeson-pretty-dev (<< 0.9),
- libghc-aeson-pretty-prof,
- libghc-attoparsec-dev (<< 0.15),
- libghc-attoparsec-prof,
- libghc-base64-bytestring-dev (<< 1.3),
- libghc-base64-bytestring-prof,
- libghc-blaze-html-dev (<< 0.10),
- libghc-blaze-html-prof,
- libghc-blaze-markup-dev (<< 0.9),
- libghc-blaze-markup-prof,
- libghc-case-insensitive-dev (<< 1.3),
- libghc-case-insensitive-prof,
- libghc-citeproc-dev (<< 0.7),
- libghc-citeproc-prof,
- libghc-commonmark-dev (<< 0.3),
- libghc-commonmark-prof,
- libghc-commonmark-extensions-dev (<< 0.3),
- libghc-commonmark-extensions-prof,
- libghc-commonmark-pandoc-dev (<< 0.3),
- libghc-commonmark-pandoc-prof,
- libghc-connection-dev (>= 0.3.1),
- libghc-connection-prof,
- libghc-data-default-dev (<< 0.8),
- libghc-data-default-prof,
- libghc-doclayout-dev (>= 0.3.1.1),
- libghc-doclayout-dev (<< 0.4),
- libghc-doclayout-prof,
- libghc-doctemplates-dev (>= 0.10),
- libghc-doctemplates-dev (<< 0.11),
- libghc-doctemplates-prof,
- libghc-emojis-dev (<< 0.2),
- libghc-emojis-prof,
- libghc-exceptions-dev (<< 0.11),
- libghc-exceptions-prof,
- libghc-file-embed-dev (<< 0.1),
- libghc-file-embed-prof,
- libghc-glob-dev (<< 0.11),
- libghc-glob-prof,
- libghc-haddock-library-dev (>= 1.10),
- libghc-haddock-library-dev (<< 1.11),
- libghc-haddock-library-prof,
- libghc-hslua-dev (>= 2.1),
- libghc-hslua-dev (<< 2.2),
- libghc-hslua-prof,
- libghc-hslua-aeson-dev (>= 2.1),
- libghc-hslua-aeson-dev (<< 2.2),
- libghc-hslua-aeson-prof,
- libghc-hslua-marshalling-dev (>= 2.1),
- libghc-hslua-marshalling-dev (<< 2.2),
- libghc-hslua-marshalling-prof,
- libghc-hslua-module-path-dev (<< 1.1),
- libghc-hslua-module-path-prof,
- libghc-hslua-module-system-dev (>= 1),
- libghc-hslua-module-system-dev (<< 1.1),
- libghc-hslua-module-system-prof,
- libghc-hslua-module-text-dev (>= 1),
- libghc-hslua-module-text-dev (<< 1.1),
- libghc-hslua-module-text-prof,
- libghc-hslua-module-version-dev (<< 1.1),
- libghc-hslua-module-version-prof,
- libghc-http-client-dev (<< 0.8),
- libghc-http-client-prof,
- libghc-http-client-tls-dev (<< 0.4),
- libghc-http-client-tls-prof,
- libghc-http-types-dev (<< 0.13),
- libghc-http-types-prof,
- libghc-ipynb-dev (>= 0.2),
- libghc-ipynb-dev (<< 0.3),
- libghc-ipynb-prof,
- libghc-jira-wiki-markup-dev (>= 1.4),
- libghc-jira-wiki-markup-dev (<< 1.5),
- libghc-jira-wiki-markup-prof,
- libghc-juicypixels-dev (<< 3.4),
- libghc-juicypixels-prof,
- libghc-lpeg-dev (<< 1.1),
- libghc-lpeg-prof,
- libghc-network-dev,
- libghc-network-prof,
- libghc-network-uri-dev (<< 2.8),
- libghc-network-uri-prof,
- libghc-pandoc-lua-marshal-dev (<< 0.2),
- libghc-pandoc-lua-marshal-prof,
- libghc-pandoc-types-dev (>= 1.22.1),
- libghc-pandoc-types-dev (<< 1.23),
- libghc-pandoc-types-prof,
- libghc-pretty-show-dev (>= 1.10),
- libghc-pretty-show-dev (<< 1.11),
- libghc-pretty-show-prof,
- libghc-random-dev (<< 1.3),
- libghc-random-prof,
- libghc-safe-dev (<< 0.4),
- libghc-safe-prof,
- libghc-scientific-dev (<< 0.4),
- libghc-scientific-prof,
- libghc-sha-dev (<< 1.7),
- libghc-sha-prof,
- libghc-skylighting-dev (>= 0.12.3.1),
- libghc-skylighting-dev (<< 0.13),
- libghc-skylighting-prof,
- libghc-skylighting-core-dev (>= 0.12.3.1),
- libghc-skylighting-core-dev (<< 0.13),
- libghc-skylighting-core-prof,
- libghc-split-dev (<< 0.3),
- libghc-split-prof,
- libghc-syb-dev (<< 0.8),
- libghc-syb-prof,
- libghc-tagsoup-dev (<< 0.15),
- libghc-tagsoup-prof,
+ haskell-devscripts,
+ libghc-hslua-cli-dev (<< 1.5),
+ libghc-hslua-cli-dev (>= 1.4.1),
+ libghc-hslua-cli-prof,
+ libghc-pandoc-dev (>= 3.1.11.1),
+ libghc-pandoc-lua-engine-dev (<< 0.3),
+ libghc-pandoc-lua-engine-dev (>= 0.2),
+ libghc-pandoc-lua-engine-prof,
+ libghc-pandoc-prof,
  libghc-temporary-dev (<< 1.4),
  libghc-temporary-prof,
- libghc-texmath-dev (>= 0.12.4),
- libghc-texmath-dev (<< 0.12.5),
- libghc-texmath-prof,
- libghc-text-conversions-dev (<< 0.4),
- libghc-text-conversions-prof,
- libghc-unicode-collation-dev (<< 0.2),
- libghc-unicode-collation-prof,
- libghc-unicode-transforms-dev (<< 0.5),
- libghc-unicode-transforms-prof,
- libghc-xml-dev (<< 1.4),
- libghc-xml-prof,
- libghc-xml-conduit-dev (>= 1.9.1.1),
- libghc-xml-conduit-dev (<< 1.10),
- libghc-xml-conduit-prof,
- libghc-yaml-dev (>= 0.11),
- libghc-yaml-dev (<< 0.12),
- libghc-yaml-prof,
- libghc-zip-archive-dev (<< 0.5),
- libghc-zip-archive-prof,
- libghc-zlib-dev (<< 0.7),
- libghc-zlib-prof,
- libghc-diff-dev (<< 0.5),
- libghc-tasty-dev (<< 1.5),
- libghc-tasty-golden-dev (<< 2.4),
- libghc-tasty-hunit-dev (<< 0.11),
- libghc-tasty-lua-dev (>= 1),
- libghc-tasty-lua-dev (<< 1.1),
- libghc-tasty-quickcheck-dev (<< 0.11),
- haskell-devscripts,
- bash-completion
-Build-Depends-Indep: ghc-doc,
- libghc-aeson-doc,
- libghc-aeson-pretty-doc,
- libghc-ansi-terminal-doc,
- libghc-asn1-encoding-doc,
- libghc-asn1-parse-doc,
- libghc-asn1-types-doc,
- libghc-async-doc,
- libghc-attoparsec-doc,
- libghc-base-compat-batteries-doc,
- libghc-base-compat-doc,
- libghc-base-orphans-doc,
- libghc-base16-bytestring-doc,
- libghc-base64-bytestring-doc,
- libghc-basement-doc,
- libghc-blaze-builder-doc,
- libghc-blaze-html-doc,
- libghc-blaze-markup-doc,
- libghc-case-insensitive-doc,
- libghc-cereal-doc,
- libghc-citeproc-doc,
- libghc-commonmark-doc,
- libghc-commonmark-extensions-doc,
- libghc-commonmark-pandoc-doc,
- libghc-colour-doc,
- libghc-connection-doc,
- libghc-cookie-doc,
- libghc-cryptonite-doc,
- libghc-data-default-class-doc,
- libghc-data-default-doc,
- libghc-data-default-instances-containers-doc,
- libghc-data-default-instances-dlist-doc,
- libghc-data-default-instances-old-locale-doc,
- libghc-digest-doc,
- libghc-dlist-doc,
- libghc-doclayout-doc,
- libghc-doctemplates-doc,
- libghc-emojis-doc,
- libghc-errors-doc,
- libghc-exceptions-doc,
- libghc-file-embed-doc,
- libghc-glob-doc,
- libghc-haddock-library-doc,
- libghc-hashable-doc,
- libghc-hourglass-doc,
- libghc-hslua-doc,
- libghc-hslua-aeson-doc,
- libghc-hslua-marshalling-doc,
- libghc-hslua-module-path-doc,
- libghc-hslua-module-system-doc,
- libghc-hslua-module-text-doc,
- libghc-hslua-module-version-doc,
- libghc-hsyaml-doc,
- libghc-http-doc,
- libghc-http-client-doc,
- libghc-http-client-tls-doc,
- libghc-http-types-doc,
- libghc-hxt-charproperties-doc,
- libghc-hxt-doc,
- libghc-hxt-regex-xmlschema-doc,
- libghc-hxt-unicode-doc,
- libghc-integer-logarithms-doc,
- libghc-ipynb-doc,
- libghc-jira-wiki-markup-doc,
- libghc-juicypixels-doc,
- libghc-lpeg-doc,
- libghc-memory-doc,
- libghc-mime-types-doc,
- libghc-network-doc,
- libghc-network-uri-doc,
- libghc-old-locale-doc,
- libghc-pandoc-lua-marshal-doc,
- libghc-pandoc-types-doc,
- libghc-pem-doc,
- libghc-primitive-doc,
- libghc-quickcheck2-doc,
- libghc-random-doc,
- libghc-regex-base-doc,
- libghc-regex-pcre-doc,
- libghc-safe-doc,
- libghc-scientific-doc,
- libghc-sha-doc,
- libghc-skylighting-core-doc,
- libghc-skylighting-doc,
- libghc-socks-doc,
- libghc-split-doc,
- libghc-splitmix-doc,
- libghc-streaming-commons-doc,
- libghc-syb-doc,
- libghc-tagged-doc,
- libghc-tagsoup-doc,
- libghc-temporary-doc,
- libghc-texmath-doc,
- libghc-text-conversions-doc,
- libghc-th-abstraction-doc,
- libghc-time-compat-doc,
- libghc-tls-doc,
- libghc-transformers-compat-doc,
- libghc-unicode-collation-doc,
- libghc-unicode-transforms-doc,
- libghc-unordered-containers-doc,
- libghc-utf8-string-doc,
- libghc-uuid-types-doc,
- libghc-x509-doc,
- libghc-x509-store-doc,
- libghc-x509-system-doc,
- libghc-x509-validation-doc,
- libghc-xml-doc,
- libghc-xml-conduit-doc,
- libghc-yaml-doc,
- libghc-zip-archive-doc,
- libghc-zlib-doc,
-Standards-Version: 4.6.1
+ pandoc-data,
+Standards-Version: 4.7.0
 Homepage: https://pandoc.org/
 Vcs-Git: https://salsa.debian.org/haskell-team/pandoc.git
 Vcs-Browser: https://salsa.debian.org/haskell-team/pandoc
@@ -274,13 +35,16 @@ Rules-Requires-Root: no
 
 Package: pandoc
 Architecture: any
-Depends: ${cdbs:Depends}
- , ${misc:Depends}
- , ${shlibs:Depends}
- , pandoc-data (>= ${source:Version})
- , pandoc-data (<< ${source:Version}.~)
-Recommends: ${cdbs:Recommends}
-Suggests: ${cdbs:Suggests}
+Depends:
+ pandoc-data (<< ${pandoc:Lib}.~),
+ pandoc-data (>= ${pandoc:Lib}),
+ ${cdbs:Depends},
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends:
+ ${cdbs:Recommends},
+Suggests:
+ ${cdbs:Suggests},
 Provides:
  pandoc-abi (= ${pandoc:Abi}),
 Multi-Arch: foreign
@@ -297,10 +61,11 @@ Description: general markup converter
   * Documentation formats (GNU TexInfo, Haddock)
   * Roff formats (man, ms)
   * TeX formats (LaTeX, ConTeXt)
+  * Typst
   * XML formats
     (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
   * Outline formats (OPML)
-  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML)
+  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML, RIS)
   * Word processor formats (Docx, RTF, ODT)
   * Interactive notebook formats (Jupyter notebook ipynb)
   * Page layout formats (InDesign ICML)
@@ -310,11 +75,12 @@ Description: general markup converter
   * Slide show formats
     (LaTeX Beamer, PowerPoint, Slidy,
      reveal.js, Slideous, S5, DZSlides)
-  * Data formats (CSV tables)
+  * Data formats (CSV and TSV tables)
   * PDF (via external programs such as pdflatex or wkhtmltopdf)
  .
  Pandoc can convert mathematical content in documents
- between TeX, MathML, Word equations, roff eqn, and plain text.
+ between TeX, MathML, Word equations, roff eqn, typst,
+ and plain text.
  It includes a powerful system
  for automatic citations and bibliographies,
  and it can be customized extensively using templates, filters,
@@ -343,189 +109,3 @@ Description: general markup converter
   * MathJax-rendered equations require libjs-mathjax.
   * KaTeX-rendered equations require node-katex.
   * option --csl may use styles in citation-style-language-styles.
-
-Package: pandoc-data
-Architecture: all
-Depends: ${cdbs:Depends}
- , ${misc:Depends}
-Recommends: ${cdbs:Recommends}
-Suggests: ${cdbs:Suggests}
-Multi-Arch: foreign
-Description: general markup converter - data files
- Pandoc is a Haskell library for converting
- from one markup format to another,
- and a command-line tool that uses this library.
- The formats it can handle include
-  * light markup formats
-    (many variants of Markdown, reStructuredText, AsciiDoc,
-     Org-mode, Muse, Textile, txt2tags)
-  * HTML formats (HTML 4 and 5)
-  * Ebook formats (EPUB v2 and v3, FB2)
-  * Documentation formats (GNU TexInfo, Haddock)
-  * Roff formats (man, ms)
-  * TeX formats (LaTeX, ConTeXt)
-  * XML formats
-    (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
-  * Outline formats (OPML)
-  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML)
-  * Word processor formats (Docx, RTF, ODT)
-  * Interactive notebook formats (Jupyter notebook ipynb)
-  * Page layout formats (InDesign ICML)
-  * Wiki markup formats
-    (MediaWiki, DokuWiki, TikiWiki, TWiki,
-     Vimwiki, XWiki, ZimWiki, Jira wiki, Creole)
-  * Slide show formats
-    (LaTeX Beamer, PowerPoint, Slidy,
-     reveal.js, Slideous, S5, DZSlides)
-  * Data formats (CSV tables)
-  * PDF (via external programs such as pdflatex or wkhtmltopdf)
- .
- Pandoc can convert mathematical content in documents
- between TeX, MathML, Word equations, roff eqn, and plain text.
- It includes a powerful system
- for automatic citations and bibliographies,
- and it can be customized extensively using templates, filters,
- and custom readers and writers written in Lua.
- .
- This package contains the data files for pandoc.
-
-Package: libghc-pandoc-dev
-Section: haskell
-Architecture: any
-Depends: ${cdbs:Depends}
- , ${haskell:Depends}
- , ${haskell:Extra-Depends}
- , ${misc:Depends}
- , ${shlibs:Depends}
-Recommends: ${haskell:Recommends}
-Suggests: ${haskell:Suggests}
-Provides: ${haskell:Provides}
-Description: general markup converter - libraries
- Pandoc is a Haskell library for converting
- from one markup format to another,
- and a command-line tool that uses this library.
- The formats it can handle include
-  * light markup formats
-    (many variants of Markdown, reStructuredText, AsciiDoc,
-     Org-mode, Muse, Textile, txt2tags)
-  * HTML formats (HTML 4 and 5)
-  * Ebook formats (EPUB v2 and v3, FB2)
-  * Documentation formats (GNU TexInfo, Haddock)
-  * Roff formats (man, ms)
-  * TeX formats (LaTeX, ConTeXt)
-  * XML formats
-    (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
-  * Outline formats (OPML)
-  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML)
-  * Word processor formats (Docx, RTF, ODT)
-  * Interactive notebook formats (Jupyter notebook ipynb)
-  * Page layout formats (InDesign ICML)
-  * Wiki markup formats
-    (MediaWiki, DokuWiki, TikiWiki, TWiki,
-     Vimwiki, XWiki, ZimWiki, Jira wiki, Creole)
-  * Slide show formats
-    (LaTeX Beamer, PowerPoint, Slidy,
-     reveal.js, Slideous, S5, DZSlides)
-  * Data formats (CSV tables)
-  * PDF (via external programs such as pdflatex or wkhtmltopdf)
- .
- Pandoc can convert mathematical content in documents
- between TeX, MathML, Word equations, roff eqn, and plain text.
- It includes a powerful system
- for automatic citations and bibliographies,
- and it can be customized extensively using templates, filters,
- and custom readers and writers written in Lua.
- .
- This package contains the libraries compiled for GHC.
-
-Package: libghc-pandoc-doc
-Section: doc
-Architecture: all
-Multi-Arch: foreign
-Depends: ${haskell:Depends}
- , ${haskell:Extra-Depends}
- , ${misc:Depends}
-Recommends: ${haskell:Recommends}
-Description: general markup converter - library documentation
- Pandoc is a Haskell library for converting
- from one markup format to another,
- and a command-line tool that uses this library.
- The formats it can handle include
-  * light markup formats
-    (many variants of Markdown, reStructuredText, AsciiDoc,
-     Org-mode, Muse, Textile, txt2tags)
-  * HTML formats (HTML 4 and 5)
-  * Ebook formats (EPUB v2 and v3, FB2)
-  * Documentation formats (GNU TexInfo, Haddock)
-  * Roff formats (man, ms)
-  * TeX formats (LaTeX, ConTeXt)
-  * XML formats
-    (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
-  * Outline formats (OPML)
-  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML)
-  * Word processor formats (Docx, RTF, ODT)
-  * Interactive notebook formats (Jupyter notebook ipynb)
-  * Page layout formats (InDesign ICML)
-  * Wiki markup formats
-    (MediaWiki, DokuWiki, TikiWiki, TWiki,
-     Vimwiki, XWiki, ZimWiki, Jira wiki, Creole)
-  * Slide show formats
-    (LaTeX Beamer, PowerPoint, Slidy,
-     reveal.js, Slideous, S5, DZSlides)
-  * Data formats (CSV tables)
-  * PDF (via external programs such as pdflatex or wkhtmltopdf)
- .
- Pandoc can convert mathematical content in documents
- between TeX, MathML, Word equations, roff eqn, and plain text.
- It includes a powerful system
- for automatic citations and bibliographies,
- and it can be customized extensively using templates, filters,
- and custom readers and writers written in Lua.
- .
- This package contains the library documentation for Pandoc.
-
-Package: libghc-pandoc-prof
-Section: haskell
-Architecture: any
-Depends: ${haskell:Depends}
- , ${haskell:Extra-Depends}
- , ${misc:Depends}
-Suggests: ${cdbs:Suggests}
-Provides: ${haskell:Provides}
-Description: general markup converter - profiling libraries
- Pandoc is a Haskell library for converting
- from one markup format to another,
- and a command-line tool that uses this library.
- The formats it can handle include
-  * light markup formats
-    (many variants of Markdown, reStructuredText, AsciiDoc,
-     Org-mode, Muse, Textile, txt2tags)
-  * HTML formats (HTML 4 and 5)
-  * Ebook formats (EPUB v2 and v3, FB2)
-  * Documentation formats (GNU TexInfo, Haddock)
-  * Roff formats (man, ms)
-  * TeX formats (LaTeX, ConTeXt)
-  * XML formats
-    (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
-  * Outline formats (OPML)
-  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML)
-  * Word processor formats (Docx, RTF, ODT)
-  * Interactive notebook formats (Jupyter notebook ipynb)
-  * Page layout formats (InDesign ICML)
-  * Wiki markup formats
-    (MediaWiki, DokuWiki, TikiWiki, TWiki,
-     Vimwiki, XWiki, ZimWiki, Jira wiki, Creole)
-  * Slide show formats
-    (LaTeX Beamer, PowerPoint, Slidy,
-     reveal.js, Slideous, S5, DZSlides)
-  * Data formats (CSV tables)
-  * PDF (via external programs such as pdflatex or wkhtmltopdf)
- .
- Pandoc can convert mathematical content in documents
- between TeX, MathML, Word equations, roff eqn, and plain text.
- It includes a powerful system
- for automatic citations and bibliographies,
- and it can be customized extensively using templates, filters,
- and custom readers and writers written in Lua.
- .
- This package contains the profiling libraries for Pandoc.
