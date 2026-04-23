@@ -1,0 +1,39 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: pandoc
+Upstream-Contact: https://github.com/jgm/pandoc/issues
+Source: https://github.com/jgm/pandoc.git
+
+Files: *
+Copyright:
+  2022-2023  Albert Krewinkel <tarleb+pandoc@moltkeplatz.de>
+  2006-2023  John MacFarlane <jgm@berkeley.edu>
+License-Grant:
+ This file is free software;
+ you can redistribute it and/or modify it
+ under the terms of the GNU General Public License
+ as published by the Free Software Foundation;
+ either version 2 of the License,
+ or (at your option) any later version.
+License: GPL-2+
+
+Files:
+ debian/*
+Copyright:
+  2006-2010             John MacFarlane <jgm@berkeley.edu>
+  2008-2020, 2022-2023  Jonas Smedegaard <dr@jones.dk>
+  2007-2008             Recai Oktaş <roktas@debian.org>
+License-Grant:
+ This file is free software;
+ you can redistribute it and/or modify it
+ under the terms of the GNU General Public License
+ as published by the Free Software Foundation;
+ either version 3 of the License,
+ or (at your option) any later version.
+License: GPL-3+
+Reference: debian/copyright
+
+License: GPL-2+
+Reference: /usr/share/common-licenses/GPL-2
+
+License: GPL-3+
+Reference: /usr/share/common-licenses/GPL-3

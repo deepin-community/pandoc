@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -eu
+
+SKIPFILES='skip|meta'
+
+# cleanup stray hint files from a previous run
+find -type f -regextype posix-egrep -regex "^.*:($SKIPFILES)$" -delete
+
+1>&2 echo 'skip binary files without parsable metadata ...'
+RE_skip='.*\.(docx|pptx|odt|epub)'
+find -type f -regextype posix-egrep -regex "^($RE_skip)$" -exec sh -c "echo 'License: UNKNOWN' > '{}:skip'" ';'
+
+# skip non-copyright-protected Debian files
+RE_debian='debian/(changelog|copyright(-check|_hints)?|source/lintian-overrides)'
+
+1>&2 echo 'extract metadata from binary files ...'
+RE_meta='.*\.(png|jpg|jpeg|gif|ttf|otf)'
+exiftool '-textOut!' %d%f.%e:meta -short -short -recurse -ext png -ext jpg -ext jpeg -ext gif -ext ttf -ext otf .
+
+RE_SKIP="$RE_skip|$RE_meta"
+
+# check for copyright and licensing statements
+licensecheck --copyright --deb-machine --recursive --lines 0 --check '.*' --ignore "^($RE_SKIP|$RE_debian)$" -- * > debian/copyright_hints
+
+# tidy listing of diverted files
+sed -i -e 's/:meta$//' -e 's/:skip$//' debian/copyright_hints
+
+# cleanup hint files
+find -type f -regextype posix-egrep -regex "^.*:($SKIPFILES)$" -delete

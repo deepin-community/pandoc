@@ -1,0 +1,50 @@
+#!/usr/bin/make -f
+
+# resolve DEB_VERSION_UPSTREAM
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_ENABLE_TESTS = yes
+export CABAL_PACKAGE = pandoc-cli
+
+pkg = $(DEB_SOURCE_PACKAGE)
+
+ABI = $(shell dpkg-query --showformat='$${source:Version}' --show libghc-pandoc-types-dev)
+LIB = $(firstword $(subst +, ,$(DEB_VERSION_UPSTREAM)))
+
+# Fix exception thrown building documentation:
+# haddock: internal error: <stdout>: commitBuffer: invalid argument (invalid character)
+export LANG=C.UTF-8
+
+# Use threaded RTS only when supported
+DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(wildcard /usr/lib/ghc-$(GHC_VERSION)/libHSrts_thr.a),,--flags=-threaded)
+
+# Disable timer to help build on slow arches like hppa
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="+RTS -V0 -RTS"
+
+# Reduce compile-time memory utilization on low-memory architectures
+ifneq (,$(filter $(DEB_BUILD_ARCH),armel armhf hppa mips mipsel))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-optc--param -optcggc-min-expand=10 -O0"
+endif
+
+# avoid "relocation R_LARCH_B26 overflow" during static linking
+# (see bug#1071205)
+ifneq (,$(filter $(DEB_BUILD_ARCH),loong64))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-optc-mcmodel=medium"
+endif
+
+ifneq (,$(filter $(DEB_HOST_ARCH_CPU), i386))
+DEB_SETUP_GHC_CONFIGURE_ARGS += --ghc-options="-O0"
+endif
+
+DEB_SETUP_GHC_CONFIGURE_ARGS += $(if $(filter nocheck,$(DEB_BUILD_OPTIONS)),,-ftests)
+export DEB_SETUP_GHC_CONFIGURE_ARGS
+
+execute_after_dh_auto_install:
+	debian/tmp/usr/bin/pandoc --bash-completion \
+		> debian/pandoc.bash-completion
+
+override_dh_gencontrol:
+	dh_gencontrol -- -V"pandoc:Abi=$(ABI)" -V"pandoc:Lib=$(LIB)"
+
+%:
+	dh $@ --with bash-completion

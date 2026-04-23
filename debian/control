@@ -1,0 +1,132 @@
+Source: pandoc
+Section: text
+Priority: optional
+Maintainer: Debian Haskell Group <pkg-haskell-maintainers@lists.alioth.debian.org>
+Uploaders:
+ Jonas Smedegaard <dr@jones.dk>,
+ Kiwamu Okabe <kiwamu@debian.or.jp>,
+ Clint Adams <clint@debian.org>,
+ Scott Talbert <swt@techie.net>,
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-sequence-haskell,
+ alex,
+ bash-completion,
+ ghc (>= 9.10),
+ ghc-prof,
+ happy,
+ haskell-devscripts,
+ libghc-hslua-cli-dev (<< 1.5),
+ libghc-hslua-cli-dev (>= 1.4.1),
+ libghc-hslua-cli-prof,
+ libghc-pandoc-dev (>= 3.9.0.2),
+ libghc-pandoc-dev (<< 3.9.0.3),
+ libghc-pandoc-prof,
+ libghc-pandoc-lua-engine-dev (>= 0.5.1),
+ libghc-pandoc-lua-engine-dev (<< 0.6),
+ libghc-pandoc-lua-engine-prof,
+ libghc-temporary-dev (>= 1.1),
+ libghc-temporary-dev (<< 1.4),
+ libghc-temporary-prof,
+ pandoc-data,
+Standards-Version: 4.7.3
+Homepage: https://pandoc.org/
+Vcs-Browser: https://salsa.debian.org/haskell-team/DHG_packages/tree/master/p/pandoc
+Vcs-Git: https://salsa.debian.org/haskell-team/DHG_packages.git [p/pandoc]
+Rules-Requires-Root: no
+
+Package: pandoc
+Architecture: any
+Depends:
+ pandoc-data (<< ${pandoc:Lib}.~),
+ pandoc-data (>= ${pandoc:Lib}),
+ ${misc:Depends},
+ ${shlibs:Depends},
+# groff needed for groff man and groff ms output
+# librsvg2-bin (rsvg-convert) needed for SVG in PDF output
+# texlive-* needed for PDF output
+# TODO: suggest slide show Javascript libraries when in Debian
+Suggests:
+ citation-style-language-styles,
+ context,
+ ghc,
+ groff,
+ libjs-katex,
+ libjs-mathjax,
+ librsvg2-bin,
+ nodejs,
+ pandoc-citeproc,
+ perl,
+ php,
+ python3,
+ r-base-core,
+ ruby,
+ texlive-latex-extra,
+ texlive-latex-recommended,
+ texlive-luatex,
+ texlive-xetex,
+ wkhtmltopdf,
+Provides:
+ pandoc-abi (= ${pandoc:Abi}),
+Multi-Arch: foreign
+Description: general markup converter
+ Pandoc is a Haskell library for converting
+ from one markup format to another,
+ and a command-line tool that uses this library.
+ The formats it can handle include
+  * light markup formats
+    (many variants of Markdown, reStructuredText, AsciiDoc,
+     Org-mode, Muse, Textile, txt2tags)
+  * HTML formats (HTML 4 and 5)
+  * Ebook formats (EPUB v2 and v3, FB2)
+  * Documentation formats (GNU TexInfo, Haddock)
+  * Roff formats (man, ms)
+  * TeX formats (LaTeX, ConTeXt)
+  * Typst
+  * XML formats
+    (DocBook 4 and 5, JATS, TEI Simple, OpenDocument)
+  * Outline formats (OPML)
+  * Bibliography formats (BibTeX, BibLaTeX, CSL JSON, CSL YAML, RIS)
+  * Word processor formats (Docx, RTF, ODT)
+  * Interactive notebook formats (Jupyter notebook ipynb)
+  * Page layout formats (InDesign ICML)
+  * Wiki markup formats
+    (MediaWiki, DokuWiki, TikiWiki, TWiki,
+     Vimwiki, XWiki, ZimWiki, Jira wiki, Creole)
+  * Slide show formats
+    (LaTeX Beamer, PowerPoint, Slidy,
+     reveal.js, Slideous, S5, DZSlides)
+  * Data formats (CSV and TSV tables)
+  * PDF (via external programs such as pdflatex or wkhtmltopdf)
+ .
+ Pandoc can convert mathematical content in documents
+ between TeX, MathML, Word equations, roff eqn, typst,
+ and plain text.
+ It includes a powerful system
+ for automatic citations and bibliographies,
+ and it can be customized extensively using templates, filters,
+ and custom readers and writers written in Lua.
+ .
+ This package contains the pandoc tool.
+ .
+ Some uses of Pandoc require additional packages:
+  * SVG content in PDF output requires librsvg2-bin.
+  * YAML metadata in TeX-related output requires texlive-latex-extra.
+  * *.hs filters not set executable requires ghc.
+  * *.js filters not set executable requires nodejs.
+  * *.php filters not set executable requires php.
+  * *.pl filters not set executable requires perl.
+  * *.py filters not set executable requires python.
+  * *.rb filters not set executable requires ruby.
+  * *.r filters not set executable requires r-base-core.
+  * LaTeX output, and PDF output via PDFLaTeX,
+    require texlive-latex-recommended.
+  * XeLaTeX output, and PDF output via XeLaTeX, require texlive-xetex.
+  * LuaTeX output, and PDF output via LuaTeX, require texlive-luatex.
+  * ConTeXt output, and PDF output via ConTeXt, require context.
+  * PDF output via wkhtmltopdf requires wkhtmltopdf.
+  * Roff man and roff ms output, and PDF output via roff ms,
+    require groff.
+  * MathJax-rendered equations require libjs-mathjax.
+  * KaTeX-rendered equations require node-katex.
+  * option --csl may use styles in citation-style-language-styles.
