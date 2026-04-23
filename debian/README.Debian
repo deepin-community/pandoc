@@ -34,3 +34,23 @@ e.g. Javascript code for rendering mathematical equations.
 Pandoc commonly links to such external material hosted on a public CDN.
 Due to concerns for potential breach of privacy,
 Debian-packaged Pandoc instead links to locally packaged material.
+
+
+## Security Considerations
+
+When processing untrusted HTML content, pandoc may be vulnerable to
+Server-Side Request Forgery (SSRF) attacks (CVE-2025-51591).
+
+Specifically, pandoc will attempt to include the contents of iframe
+elements by fetching content from the local file or URL specified by
+the src attribute. On a server processing untrusted HTML, this could
+expose internal resources.
+
+To mitigate this risk:
+  * Use the --sandbox option to restrict file system access
+  * Use -f html+raw_html to parse iframe as raw HTML blocks
+  * Carefully validate any HTML input in server contexts
+
+For more information, see:
+  * https://github.com/jgm/pandoc/issues/10682
+  * https://www.wiz.io/blog/imds-anomaly-hunting-zero-day

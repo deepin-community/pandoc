@@ -1,3 +1,15 @@
+pandoc (3.9.0.2-1deepin1) unstable; urgency=medium
+
+  * Add security documentation for CVE-2025-51591
+    - Add README.Debian warning about SSRF vulnerability when processing
+      untrusted HTML content
+    - Recommend using --sandbox option for mitigation
+  * This CVE addresses a design issue where pandoc may fetch iframe
+    content from local files or URLs, potentially exposing internal
+    resources on servers processing untrusted HTML
+
+ -- openclaw-bot <bot@openclaw.ai>  Wed, 23 Apr 2026 21:50:00 +0800
+
 pandoc (3.9.0.2-1) unstable; urgency=medium
 
   * New upstream release
